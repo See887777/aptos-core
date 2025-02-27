@@ -33,24 +33,21 @@ fn hash_leaf(key: HashValue, value_hash: HashValue) -> HashValue {
     SparseMerkleLeafNode::new(key, value_hash).hash()
 }
 
-type SparseMerkleTree = super::SparseMerkleTree<StateValue>;
-type SubTree = super::SubTree<StateValue>;
-
 #[test]
 fn test_replace_in_mem_leaf() {
     let key = b"hello".test_only_hash();
     let value_hash = b"world".test_only_hash();
-    let leaf = SubTree::new_leaf_with_value_hash(key, value_hash, 0 /* generation */);
+    let leaf = SubTree::new_leaf(key, value_hash, 0 /* generation */);
     let smt = SparseMerkleTree::new_with_root(leaf);
 
-    let new_value: StateValue = vec![1, 2, 3].into();
-    let root_hash = hash_leaf(key, new_value.hash());
+    let new_value = "new_value".test_only_hash();
+    let root_hash = hash_leaf(key, new_value);
     let updated = smt
-        .batch_update(vec![(key, Some(&new_value))], &ProofReader::default())
+        .freeze_self_and_update(vec![(key, Some(new_value))], &ProofReader::default())
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
     let updated = updated
-        .batch_update(vec![(key, None)], &ProofReader::default())
+        .freeze_self_and_update(vec![(key, None)], &ProofReader::default())
         .unwrap();
     assert_eq!(updated.root_hash(), *SPARSE_MERKLE_PLACEHOLDER_HASH);
 }
@@ -58,21 +55,21 @@ fn test_replace_in_mem_leaf() {
 #[test]
 fn test_split_in_mem_leaf() {
     let key1 = HashValue::from_slice([0; 32]).unwrap();
-    let value1_hash = b"hello".test_only_hash();
-    let leaf1 = SubTree::new_leaf_with_value_hash(key1, value1_hash, 0 /* generation */);
+    let value1_hash = "value1".test_only_hash();
+    let leaf1 = SubTree::new_leaf(key1, value1_hash, 0 /* generation */);
     let old_root_hash = leaf1.hash();
     let smt = SparseMerkleTree::new_with_root(leaf1);
 
     let key2 = HashValue::from_slice([0xFF; 32]).unwrap();
-    let value2: StateValue = vec![1, 2, 3].into();
+    let value2_hash = HashValue::from_u64(456);
 
-    let root_hash = hash_internal(hash_leaf(key1, value1_hash), hash_leaf(key2, value2.hash()));
+    let root_hash = hash_internal(hash_leaf(key1, value1_hash), hash_leaf(key2, value2_hash));
     let updated = smt
-        .batch_update(vec![(key2, Some(&value2))], &ProofReader::default())
+        .freeze_self_and_update(vec![(key2, Some(value2_hash))], &ProofReader::default())
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
     let updated = updated
-        .batch_update(vec![(key2, None)], &ProofReader::default())
+        .freeze_self_and_update(vec![(key2, None)], &ProofReader::default())
         .unwrap();
     assert_eq!(updated.root_hash(), old_root_hash);
 }
@@ -85,20 +82,20 @@ fn test_insert_at_in_mem_empty() {
     let value2_hash = b"world".test_only_hash();
 
     let key3 = update_byte(&key1, 0, 0b10000000);
-    let value3: StateValue = vec![1, 2, 3].into();
+    let value3_hash = "123".test_only_hash();
 
     let internal = SubTree::new_internal(
-        SubTree::new_leaf_with_value_hash(key1, value1_hash, 0 /* generation */),
-        SubTree::new_leaf_with_value_hash(key2, value2_hash, 0 /* generation */),
+        SubTree::new_leaf(key1, value1_hash, 0 /* generation */),
+        SubTree::new_leaf(key2, value2_hash, 0 /* generation */),
         0, /* generation */
     );
     let internal_hash = internal.hash();
     let root = SubTree::new_internal(internal, SubTree::new_empty(), 0 /* generation */);
     let smt = SparseMerkleTree::new_with_root(root);
 
-    let root_hash = hash_internal(internal_hash, hash_leaf(key3, value3.hash()));
+    let root_hash = hash_internal(internal_hash, hash_leaf(key3, value3_hash));
     let updated = smt
-        .batch_update(vec![(key3, Some(&value3))], &ProofReader::default())
+        .freeze_self_and_update(vec![(key3, Some(value3_hash))], &ProofReader::default())
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -112,10 +109,10 @@ fn test_replace_persisted_leaf() {
     let proof_reader = ProofReader::new(vec![(key, proof)]);
 
     let smt = SparseMerkleTree::new_test(leaf.hash());
-    let new_value: StateValue = vec![1, 2, 3].into();
-    let root_hash = hash_leaf(key, new_value.hash());
+    let new_value = "new_value".test_only_hash();
+    let root_hash = hash_leaf(key, new_value);
     let updated = smt
-        .batch_update(vec![(key, Some(&new_value))], &proof_reader)
+        .freeze_self_and_update(vec![(key, Some(new_value))], &proof_reader)
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -129,7 +126,9 @@ fn test_delete_persisted_leaf() {
     let proof_reader = ProofReader::new(vec![(key, proof)]);
 
     let smt = SparseMerkleTree::new_test(leaf.hash());
-    let updated = smt.batch_update(vec![(key, None)], &proof_reader).unwrap();
+    let updated = smt
+        .freeze_self_and_update(vec![(key, None)], &proof_reader)
+        .unwrap();
     assert_eq!(updated.root_hash(), *SPARSE_MERKLE_PLACEHOLDER_HASH);
 }
 
@@ -142,18 +141,18 @@ fn test_split_persisted_leaf_and_then_delete() {
     let smt = SparseMerkleTree::new_test(leaf1.hash());
 
     let key2 = HashValue::from_slice([0xFF; 32]).unwrap();
-    let value2: StateValue = vec![1, 2, 3].into();
+    let value2_hash = "123".test_only_hash();
     let proof = SparseMerkleProofExt::new(Some(leaf1), Vec::new());
     let proof_reader = ProofReader::new(vec![(key2, proof)]);
 
-    let leaf2_hash = hash_leaf(key2, value2.hash());
+    let leaf2_hash = hash_leaf(key2, value2_hash);
     let root_hash = hash_internal(leaf1.hash(), leaf2_hash);
     let updated = smt
-        .batch_update(vec![(key2, Some(&value2))], &proof_reader)
+        .freeze_self_and_update(vec![(key2, Some(value2_hash))], &proof_reader)
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
     let updated = updated
-        .batch_update(vec![(key1, None)], &proof_reader)
+        .freeze_self_and_update(vec![(key1, None)], &proof_reader)
         .unwrap();
     assert_eq!(updated.root_hash(), leaf2_hash);
 }
@@ -166,7 +165,7 @@ fn test_insert_at_persisted_empty() {
     let value2_hash = b"world".test_only_hash();
 
     let key3 = update_byte(&key1, 0, 0b10000000);
-    let value3: StateValue = vec![1, 2, 3].into();
+    let value3_hash = "123".test_only_hash();
 
     let sibling_hash = hash_internal(hash_leaf(key1, value1_hash), hash_leaf(key2, value2_hash));
     let proof = SparseMerkleProofExt::new(None, vec![NodeInProof::Other(sibling_hash)]);
@@ -174,9 +173,9 @@ fn test_insert_at_persisted_empty() {
     let old_root_hash = hash_internal(sibling_hash, *SPARSE_MERKLE_PLACEHOLDER_HASH);
     let smt = SparseMerkleTree::new_test(old_root_hash);
 
-    let root_hash = hash_internal(sibling_hash, hash_leaf(key3, value3.hash()));
+    let root_hash = hash_internal(sibling_hash, hash_leaf(key3, value3_hash));
     let updated = smt
-        .batch_update(vec![(key3, Some(&value3))], &proof_reader)
+        .freeze_self_and_update(vec![(key3, Some(value3_hash))], &proof_reader)
         .unwrap();
     assert_eq!(updated.root_hash(), root_hash);
 }
@@ -214,11 +213,11 @@ fn test_update_256_siblings_in_proof() {
             .take(255)
             .collect();
     siblings.push(leaf2.into());
-    siblings.reverse();
     let proof_of_key1 = SparseMerkleProofExt::new(Some(leaf1), siblings.clone());
 
     let old_root_hash = siblings
         .iter()
+        .rev()
         .fold(leaf1.hash(), |previous_hash, node_in_proof| {
             hash_internal(previous_hash, node_in_proof.hash())
         });
@@ -230,23 +229,27 @@ fn test_update_256_siblings_in_proof() {
     let proof_reader = ProofReader::new(vec![(key1, proof_of_key1)]);
     let smt = SparseMerkleTree::new_test(old_root_hash);
     let new_smt = smt
-        .batch_update(vec![(key1, Some(&new_value1))], &proof_reader)
+        .freeze_self_and_update(vec![(key1, Some(new_value1.hash()))], &proof_reader)
         .unwrap();
 
     let new_value1_hash = new_value1.hash();
     let new_leaf1_hash = hash_leaf(key1, new_value1_hash);
     let new_root_hash = siblings
         .iter()
+        .rev()
         .fold(new_leaf1_hash, |previous_hash, node_in_proof| {
             hash_internal(previous_hash, node_in_proof.hash())
         });
     assert_eq!(new_smt.root_hash(), new_root_hash);
 
     assert_eq!(
-        new_smt.get(key1),
-        StateStoreStatus::ExistsInScratchPad(new_value1)
+        new_smt.freeze_self_and_get(key1),
+        StateStoreStatus::ExistsInScratchPad(new_value1.hash())
     );
-    assert_eq!(new_smt.get(key2), StateStoreStatus::ExistsInDB);
+    assert_eq!(
+        new_smt.freeze_self_and_get(key2),
+        StateStoreStatus::ExistsInScratchPad(value2_hash)
+    );
 }
 
 #[test]
@@ -300,8 +303,8 @@ fn test_update() {
     let y_hash = hash_internal(x_hash, *SPARSE_MERKLE_PLACEHOLDER_HASH);
     let old_root_hash = hash_internal(y_hash, leaf3.hash());
     let proof = SparseMerkleProofExt::new(None, vec![
-        NodeInProof::Other(x_hash),
         NodeInProof::Leaf(leaf3),
+        NodeInProof::Other(x_hash),
     ]);
     assert!(proof
         .verify::<StateValue>(old_root_hash, key4, None)
@@ -310,26 +313,44 @@ fn test_update() {
     // Create the old tree and update the tree with new value and proof.
     let proof_reader = ProofReader::new(vec![(key4, proof)]);
     let smt1 = SparseMerkleTree::new_test(old_root_hash)
-        .batch_update(vec![(key4, Some(&value4))], &proof_reader)
+        .freeze_self_and_update(vec![(key4, Some(value4.hash()))], &proof_reader)
         .unwrap();
 
     // Now smt1 should look like this:
     //             root
     //            /    \
-    //           y      key3 (unknown)
+    //           y      key3 (leaf from proof)
     //          / \
     //         x   key4
-    assert_eq!(smt1.get(key1), StateStoreStatus::Unknown);
-    assert_eq!(smt1.get(key2), StateStoreStatus::Unknown);
-    assert_eq!(smt1.get(key3), StateStoreStatus::ExistsInDB);
     assert_eq!(
-        smt1.get(key4),
-        StateStoreStatus::ExistsInScratchPad(value4.clone())
+        smt1.freeze_self_and_get(key1),
+        StateStoreStatus::UnknownSubtreeRoot {
+            hash: x_hash,
+            depth: 2
+        }
+    );
+    assert_eq!(
+        smt1.freeze_self_and_get(key2),
+        StateStoreStatus::UnknownSubtreeRoot {
+            hash: x_hash,
+            depth: 2
+        }
+    );
+    assert_eq!(
+        smt1.freeze_self_and_get(key3),
+        StateStoreStatus::ExistsInScratchPad(value3_hash)
+    );
+    assert_eq!(
+        smt1.freeze_self_and_get(key4),
+        StateStoreStatus::ExistsInScratchPad(value4.hash())
     );
 
     let non_existing_key = b"foo".test_only_hash();
     assert_eq!(non_existing_key[0], 0b0111_0110);
-    assert_eq!(smt1.get(non_existing_key), StateStoreStatus::DoesNotExist);
+    assert_eq!(
+        smt1.freeze_self_and_get(non_existing_key),
+        StateStoreStatus::DoesNotExist
+    );
 
     // Verify root hash.
     let value4_hash = value4.hash();
@@ -338,87 +359,114 @@ fn test_update() {
     let root_hash = hash_internal(y_hash, leaf3.hash());
     assert_eq!(smt1.root_hash(), root_hash);
 
-    // Verify oldest ancestor
-    assert!(Arc::ptr_eq(&smt1.get_oldest_ancestor().inner, &smt1.inner));
-
     // Next, we are going to delete key1. Create a proof for key1.
     let proof = SparseMerkleProofExt::new(Some(leaf1), vec![
-        leaf2.into(),
-        (*SPARSE_MERKLE_PLACEHOLDER_HASH).into(),
         leaf3.into(),
+        (*SPARSE_MERKLE_PLACEHOLDER_HASH).into(),
+        leaf2.into(),
     ]);
     assert!(proof.verify(old_root_hash, key1, Some(&value1)).is_ok());
 
     let proof_reader = ProofReader::new(vec![(key1, proof)]);
     let smt2 = smt1
-        .batch_update(vec![(key1, None)], &proof_reader)
+        .freeze_self_and_update(vec![(key1, None)], &proof_reader)
         .unwrap();
 
-    // smt2 looks like:
+    // smt2 deletes key1 from smt1, it looks like:
     //                root
     //               /    \
-    //              y      key3 (indb, weak)
+    //              y      key3
     //             / \
-    //    key2(indb)  key4 (weak data)
-    assert_eq!(smt2.get(key1), StateStoreStatus::DoesNotExist,);
-    assert_eq!(smt2.get(key2), StateStoreStatus::ExistsInDB);
-    assert_eq!(smt2.get(key3), StateStoreStatus::ExistsInDB);
-    assert_eq!(smt2.get(key4), StateStoreStatus::ExistsInScratchPad(value4));
+    //           /  key4
+    //         key2 (leaf on proof brought up to "x" position)
+    assert_eq!(
+        smt2.freeze_self_and_get(key1),
+        StateStoreStatus::DoesNotExist
+    );
+    assert_eq!(
+        smt2.freeze_self_and_get(key2),
+        StateStoreStatus::ExistsInScratchPad(value2_hash)
+    );
+    assert_eq!(
+        smt2.freeze_self_and_get(key3),
+        StateStoreStatus::ExistsInScratchPad(value3_hash)
+    );
+    assert_eq!(
+        smt2.freeze_self_and_get(key4),
+        StateStoreStatus::ExistsInScratchPad(value4_hash)
+    );
 
     // Verify root hash.
     let y_hash = hash_internal(leaf2.hash(), leaf4_hash);
     let root_hash = hash_internal(y_hash, leaf3.hash());
     assert_eq!(smt2.root_hash(), root_hash);
 
-    // Verify oldest ancestor
-    assert_eq_pointee(&smt2.get_oldest_ancestor(), &smt1);
-
     // We now try to create another branch on top of smt1.
     let value4 = StateValue::from(String::from("test_val4444").into_bytes());
 
-    // key4 already exists in the tree.
+    // key4 already exists in the tree, overwrite
     let proof_reader = ProofReader::default();
     let smt22 = smt1
-        .batch_update(vec![(key4, Some(&value4))], &proof_reader)
+        .freeze_self_and_update(vec![(key4, Some(value4.hash()))], &proof_reader)
         .unwrap();
 
     // smt22 is like:
     //             root
     //            /    \
-    //           y'      key3 (indb, weak)
+    //           y'      key3
     //          / \
     // (weak) x   key4
-    assert_eq!(smt22.get(key2), StateStoreStatus::Unknown);
-    assert_eq!(smt22.get(key3), StateStoreStatus::ExistsInDB);
     assert_eq!(
-        smt22.get(key4),
-        StateStoreStatus::ExistsInScratchPad(value4.clone())
+        smt22.freeze_self_and_get(key2),
+        StateStoreStatus::UnknownSubtreeRoot {
+            hash: x_hash,
+            depth: 2
+        }
+    );
+    assert_eq!(
+        smt22.freeze_self_and_get(key3),
+        StateStoreStatus::ExistsInScratchPad(value3_hash)
+    );
+    assert_eq!(
+        smt22.freeze_self_and_get(key4),
+        StateStoreStatus::ExistsInScratchPad(value4.hash())
     );
 
-    // Verify oldest ancestor
-    assert_eq_pointee(&smt22.get_oldest_ancestor(), &smt1);
-
-    // Now prune smt1.
     drop(smt1);
 
-    // Verify oldest ancestor
-    assert_eq_pointee(&smt2.get_oldest_ancestor(), &smt2);
-    assert_eq_pointee(&smt22.get_oldest_ancestor(), &smt22);
-
-    // For smt2, no key should be available since smt2 was constructed by deleting key1.
-    assert_eq!(smt2.get(key1), StateStoreStatus::DoesNotExist);
-    assert_eq!(smt2.get(key2), StateStoreStatus::ExistsInDB);
-    assert_eq!(smt2.get(key3), StateStoreStatus::ExistsInDB);
-    assert_eq!(smt2.get(key4), StateStoreStatus::ExistsInDB);
-
-    // For smt22, only key4 should be available since smt22 was constructed by updating smt1 with
-    // key4.
-    assert_eq!(smt22.get(key1), StateStoreStatus::Unknown);
-    assert_eq!(smt22.get(key2), StateStoreStatus::Unknown);
-    assert_eq!(smt22.get(key3), StateStoreStatus::ExistsInDB);
+    // check smt2
     assert_eq!(
-        smt22.get(key4),
-        StateStoreStatus::ExistsInScratchPad(value4)
+        smt2.freeze_self_and_get(key1),
+        StateStoreStatus::DoesNotExist
+    );
+    assert_eq!(
+        smt2.freeze_self_and_get(key2),
+        StateStoreStatus::ExistsInScratchPad(value2_hash)
+    );
+    assert_eq!(
+        smt2.freeze_self_and_get(key3),
+        StateStoreStatus::ExistsInScratchPad(value3_hash)
+    );
+    assert_eq!(
+        smt2.freeze_self_and_get(key4),
+        StateStoreStatus::ExistsInScratchPad(value4_hash)
+    );
+
+    // check smt22
+    assert_eq!(
+        smt22.freeze_self_and_get(key2),
+        StateStoreStatus::UnknownSubtreeRoot {
+            hash: x_hash,
+            depth: 2
+        }
+    );
+    assert_eq!(
+        smt22.freeze_self_and_get(key3),
+        StateStoreStatus::ExistsInScratchPad(value3_hash)
+    );
+    assert_eq!(
+        smt22.freeze_self_and_get(key4),
+        StateStoreStatus::ExistsInScratchPad(value4.hash())
     );
 }
 
@@ -433,98 +481,8 @@ static PROOF_READER: Lazy<ProofReader> = Lazy::new(|| {
 });
 
 fn update(smt: &SparseMerkleTree) -> SparseMerkleTree {
-    smt.batch_update(vec![(*KEY, Some(&VALUE))], &*PROOF_READER)
+    smt.freeze_self_and_update(vec![(*KEY, Some(VALUE.hash()))], &*PROOF_READER)
         .unwrap()
-}
-
-#[test]
-fn test_get_oldest_ancestor() {
-    // smt0 - smt00 - smt000 - smt0000 - smt00000
-    //              \
-    //              |\ smt001 - smt0010 - smt00100
-    //              |        \
-    //              |          smt0011 - smt00110
-    //              |                  \
-    //              |                    smt00111
-    //              \
-    //                smt002
-
-    let smt0 = SparseMerkleTree::new_test(LEAF.hash());
-    let smt00 = update(&smt0);
-    let smt000 = update(&smt00);
-    let smt0000 = update(&smt000);
-    let smt00000 = update(&smt0000);
-    let smt001 = update(&smt00);
-    let smt0010 = update(&smt001);
-    let smt00100 = update(&smt0010);
-    let smt0011 = update(&smt001);
-    let smt00110 = update(&smt0011);
-    let smt00111 = update(&smt0011);
-    let smt002 = update(&smt00);
-
-    assert_eq_pointee(&smt0.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt00.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt000.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt0000.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt00000.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt001.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt0010.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt00100.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt0011.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt00110.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt00111.get_oldest_ancestor(), &smt0);
-    assert_eq_pointee(&smt002.get_oldest_ancestor(), &smt0);
-
-    drop(smt0);
-    assert_eq_pointee(&smt00.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt000.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt0000.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt00000.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt001.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt0010.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt00100.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt0011.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt00110.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt00111.get_oldest_ancestor(), &smt00);
-    assert_eq_pointee(&smt002.get_oldest_ancestor(), &smt00);
-
-    drop(smt00);
-    assert_eq_pointee(&smt000.get_oldest_ancestor(), &smt000);
-    assert_eq_pointee(&smt0000.get_oldest_ancestor(), &smt000);
-    assert_eq_pointee(&smt00000.get_oldest_ancestor(), &smt000);
-    assert_eq_pointee(&smt001.get_oldest_ancestor(), &smt001);
-    assert_eq_pointee(&smt0010.get_oldest_ancestor(), &smt001);
-    assert_eq_pointee(&smt00100.get_oldest_ancestor(), &smt001);
-    assert_eq_pointee(&smt0011.get_oldest_ancestor(), &smt001);
-    assert_eq_pointee(&smt00110.get_oldest_ancestor(), &smt001);
-    assert_eq_pointee(&smt00111.get_oldest_ancestor(), &smt001);
-    assert_eq_pointee(&smt002.get_oldest_ancestor(), &smt002);
-
-    drop(smt001);
-    assert_eq_pointee(&smt000.get_oldest_ancestor(), &smt000);
-    assert_eq_pointee(&smt0000.get_oldest_ancestor(), &smt000);
-    assert_eq_pointee(&smt00000.get_oldest_ancestor(), &smt000);
-    assert_eq_pointee(&smt0010.get_oldest_ancestor(), &smt0010);
-    assert_eq_pointee(&smt00100.get_oldest_ancestor(), &smt0010);
-    assert_eq_pointee(&smt0011.get_oldest_ancestor(), &smt0011);
-    assert_eq_pointee(&smt00110.get_oldest_ancestor(), &smt0011);
-    assert_eq_pointee(&smt00111.get_oldest_ancestor(), &smt0011);
-    assert_eq_pointee(&smt002.get_oldest_ancestor(), &smt002);
-    drop(smt000);
-    assert_eq_pointee(&smt0000.get_oldest_ancestor(), &smt0000);
-    assert_eq_pointee(&smt00000.get_oldest_ancestor(), &smt0000);
-
-    drop(smt0000);
-    assert_eq_pointee(&smt00000.get_oldest_ancestor(), &smt00000);
-    drop(smt0010);
-    assert_eq_pointee(&smt00100.get_oldest_ancestor(), &smt00100);
-    drop(smt0011);
-    assert_eq_pointee(&smt00110.get_oldest_ancestor(), &smt00110);
-    assert_eq_pointee(&smt00111.get_oldest_ancestor(), &smt00111);
-}
-
-fn assert_eq_pointee(left: &SparseMerkleTree, right: &SparseMerkleTree) {
-    assert!(Arc::ptr_eq(&left.inner, &right.inner,))
 }
 
 /// update smt from multiple threads, creating branches, trying to explore edge cases around
@@ -562,54 +520,14 @@ fn test_multithread_branching() {
 }
 
 #[test]
-fn test_multithread_get_oldest_ancestor() {
-    let current_tree = Arc::new(Mutex::new(SparseMerkleTree::new_test(LEAF.hash())));
-
-    let update_fn = || {
-        let current_tree = current_tree.clone();
-        move || {
-            for _ in 0..100000 {
-                let t = current_tree.lock().clone();
-                *current_tree.lock() = update(&t);
-            }
-        }
-    };
-    let get_ancestor_fn = || {
-        let current_tree = current_tree.clone();
-        move || {
-            let t = current_tree.lock().clone();
-            let mut tree_pair = VecDeque::from(vec![t.clone(), t]);
-            for _ in 0..100000 {
-                assert!(tree_pair[0]
-                    .get_oldest_ancestor()
-                    .is_the_same(&tree_pair[1].get_oldest_ancestor()));
-                tree_pair.pop_front();
-                tree_pair.push_back(current_tree.lock().clone());
-            }
-        }
-    };
-    let update = std::thread::spawn(update_fn());
-    let gets: Vec<_> = (0..3)
-        .map(|_| std::thread::spawn(get_ancestor_fn()))
-        .collect();
-    update.join().unwrap();
-    for t in gets {
-        t.join().unwrap();
-    }
-}
-
-#[test]
 fn test_drop() {
     let proof_reader = ProofReader::default();
     let root_smt = SparseMerkleTree::new_test(*SPARSE_MERKLE_PLACEHOLDER_HASH);
     let mut smt = root_smt.clone();
     for _ in 0..100000 {
         smt = smt
-            .batch_update(
-                vec![(
-                    HashValue::zero(),
-                    Some(&StateValue::from(String::from("test_val").into_bytes())),
-                )],
+            .freeze_self_and_update(
+                vec![(HashValue::zero(), Some(HashValue::random()))],
                 &proof_reader,
             )
             .unwrap()

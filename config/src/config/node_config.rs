@@ -1,23 +1,29 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use super::{DagConsensusConfig, IndexerTableInfoConfig};
 use crate::{
     config::{
-        netbench::NetbenchConfig, node_config_loader::NodeConfigLoader,
-        persistable_config::PersistableConfig, utils::RootPath, ApiConfig, BaseConfig,
-        ConsensusConfig, Error, ExecutionConfig, IndexerConfig, IndexerGrpcConfig,
+        consensus_observer_config::ConsensusObserverConfig, dkg_config::DKGConfig,
+        internal_indexer_db_config::InternalIndexerDBConfig,
+        jwk_consensus_config::JWKConsensusConfig, netbench_config::NetbenchConfig,
+        node_config_loader::NodeConfigLoader, node_startup_config::NodeStartupConfig,
+        persistable_config::PersistableConfig, utils::RootPath, AdminServiceConfig, ApiConfig,
+        BaseConfig, ConsensusConfig, Error, ExecutionConfig, IndexerConfig, IndexerGrpcConfig,
         InspectionServiceConfig, LoggerConfig, MempoolConfig, NetworkConfig,
         PeerMonitoringServiceConfig, SafetyRulesTestConfig, StateSyncConfig, StorageConfig,
     },
     network_id::NetworkId,
 };
 use aptos_crypto::x25519;
+use aptos_logger::info;
 use aptos_temppath::TempPath;
 use aptos_types::account_address::AccountAddress as PeerId;
 use rand::{prelude::StdRng, SeedableRng};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::HashMap,
+    fmt::Debug,
     path::{Path, PathBuf},
 };
 
@@ -29,11 +35,19 @@ use std::{
 #[serde(deny_unknown_fields)]
 pub struct NodeConfig {
     #[serde(default)]
+    pub admin_service: AdminServiceConfig,
+    #[serde(default)]
     pub api: ApiConfig,
     #[serde(default)]
     pub base: BaseConfig,
     #[serde(default)]
     pub consensus: ConsensusConfig,
+    #[serde(default)]
+    pub consensus_observer: ConsensusObserverConfig,
+    #[serde(default)]
+    pub dag_consensus: DagConsensusConfig,
+    #[serde(default)]
+    pub dkg: DKGConfig,
     #[serde(default)]
     pub execution: ExecutionConfig,
     #[serde(default)]
@@ -45,13 +59,25 @@ pub struct NodeConfig {
     #[serde(default)]
     pub indexer_grpc: IndexerGrpcConfig,
     #[serde(default)]
+    pub indexer_table_info: IndexerTableInfoConfig,
+    #[serde(default)]
     pub inspection_service: InspectionServiceConfig,
+    #[serde(default)]
+    pub jwk_consensus: JWKConsensusConfig,
     #[serde(default)]
     pub logger: LoggerConfig,
     #[serde(default)]
     pub mempool: MempoolConfig,
     #[serde(default)]
+    pub netbench: Option<NetbenchConfig>,
+    #[serde(default)]
+    pub node_startup: NodeStartupConfig,
+    #[serde(default)]
     pub peer_monitoring_service: PeerMonitoringServiceConfig,
+    /// In a randomness stall, set this to be on-chain `RandomnessConfigSeqNum` + 1.
+    /// Once enough nodes restarted with the new value, the chain should unblock with randomness disabled.
+    #[serde(default)]
+    pub randomness_override_seq_num: u64,
     #[serde(default)]
     pub state_sync: StateSyncConfig,
     #[serde(default)]
@@ -59,10 +85,28 @@ pub struct NodeConfig {
     #[serde(default)]
     pub validator_network: Option<NetworkConfig>,
     #[serde(default)]
-    pub netbench: Option<NetbenchConfig>,
+    pub indexer_db_config: InternalIndexerDBConfig,
 }
 
 impl NodeConfig {
+    /// Logs the node config using INFO level logging. This is useful for
+    /// working around the length restrictions in the logger.
+    pub fn log_all_configs(&self) {
+        // Parse the node config as serde JSON
+        let config_value =
+            serde_json::to_value(self).expect("Failed to serialize the node config!");
+        let config_map = config_value
+            .as_object()
+            .expect("Failed to get the config map!");
+
+        // Log each config entry
+        for (config_name, config_value) in config_map {
+            let config_string =
+                serde_json::to_string(config_value).expect("Failed to parse the config value!");
+            info!("Using {} config: {}", config_name, config_string);
+        }
+    }
+
     /// Returns the data directory for this config
     pub fn get_data_dir(&self) -> &Path {
         &self.base.data_dir
@@ -80,7 +124,7 @@ impl NodeConfig {
     /// Sets the data directory for this config
     pub fn set_data_dir(&mut self, data_dir: PathBuf) {
         // Set the base directory
-        self.base.data_dir = data_dir.clone();
+        self.base.data_dir.clone_from(&data_dir);
 
         // Set the data directory for each sub-module
         self.consensus.set_data_dir(data_dir.clone());
@@ -136,6 +180,7 @@ impl NodeConfig {
     /// Randomizes the various ports of the node config
     pub fn randomize_ports(&mut self) {
         // Randomize the ports for the services
+        self.admin_service.randomize_ports();
         self.api.randomize_ports();
         self.inspection_service.randomize_ports();
         self.storage.randomize_ports();

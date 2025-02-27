@@ -1,8 +1,52 @@
 // Copyright © Aptos Foundation
+// SPDX-License-Identifier: Apache-2.0
 
-use crate::dag::types::{CertifiedNode, Extensions, Node, NodeCertificate};
-use aptos_consensus_types::common::{Author, Payload, Round};
-use aptos_types::aggregate_signature::AggregateSignature;
+use crate::{
+    dag::{
+        order_rule::TOrderRule,
+        types::{CertifiedNode, Extensions, Node, NodeCertificate, NodeMetadata},
+    },
+    payload_manager::TPayloadManager,
+};
+use aptos_bitvec::BitVec;
+use aptos_consensus_types::{
+    block::Block,
+    common::{Author, Payload, Round},
+};
+use aptos_executor_types::ExecutorResult;
+use aptos_types::{aggregate_signature::AggregateSignature, transaction::SignedTransaction};
+use async_trait::async_trait;
+
+pub(super) const TEST_DAG_WINDOW: u64 = 5;
+
+pub(super) struct MockPayloadManager {}
+
+#[async_trait]
+impl TPayloadManager for MockPayloadManager {
+    fn prefetch_payload_data(&self, _payload: &Payload, _author: Author, _timestamp: u64) {}
+
+    fn notify_commit(&self, _block_timestamp: u64, _payloads: Vec<Payload>) {}
+
+    fn check_payload_availability(&self, _block: &Block) -> Result<(), BitVec> {
+        unimplemented!()
+    }
+
+    async fn get_transactions(
+        &self,
+        _block: &Block,
+        _block_signers: Option<BitVec>,
+    ) -> ExecutorResult<(Vec<SignedTransaction>, Option<u64>)> {
+        Ok((Vec::new(), None))
+    }
+}
+
+pub(super) struct MockOrderRule {}
+
+impl TOrderRule for MockOrderRule {
+    fn process_new_node(&self, _node_metadata: &NodeMetadata) {}
+
+    fn process_all(&self) {}
+}
 
 pub(crate) fn new_certified_node(
     round: Round,
@@ -14,7 +58,8 @@ pub(crate) fn new_certified_node(
         round,
         author,
         0,
-        Payload::empty(false),
+        vec![],
+        Payload::empty(false, true),
         parents,
         Extensions::empty(),
     );
@@ -28,11 +73,12 @@ pub(crate) fn new_node(
     parents: Vec<NodeCertificate>,
 ) -> Node {
     Node::new(
-        0,
+        1,
         round,
         author,
         timestamp,
-        Payload::empty(false),
+        vec![],
+        Payload::empty(false, true),
         parents,
         Extensions::empty(),
     )
@@ -72,7 +118,7 @@ pub(crate) fn generate_dag_nodes(
                 nodes_at_round.push(None);
             }
         }
-        previous_round = nodes_at_round.clone();
+        previous_round.clone_from(&nodes_at_round);
         nodes.push(nodes_at_round);
     }
     nodes

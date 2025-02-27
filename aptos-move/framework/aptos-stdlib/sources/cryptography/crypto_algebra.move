@@ -283,14 +283,20 @@ module aptos_std::crypto_algebra {
 
     #[test_only]
     public fun enable_cryptography_algebra_natives(fx: &signer) {
-        std::features::change_feature_flags(fx, vector[std::features::get_cryptography_algebra_natives_feature()], vector[]);
+        std::features::change_feature_flags_for_testing(fx, vector[std::features::get_cryptography_algebra_natives_feature()], vector[]);
     }
 
     fun handles_from_elements<S>(elements: &vector<Element<S>>): vector<u64> {
         let num_elements = std::vector::length(elements);
         let element_handles = std::vector::empty();
         let i = 0;
-        while (i < num_elements) {
+        while ({
+            spec {
+                invariant len(element_handles) == i;
+                invariant forall k in 0..i: element_handles[k] == elements[k].handle;
+            };
+            i < num_elements
+        }) {
             std::vector::push_back(&mut element_handles, std::vector::borrow(elements, i).handle);
             i = i + 1;
         };

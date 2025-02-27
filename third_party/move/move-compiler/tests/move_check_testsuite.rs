@@ -12,6 +12,7 @@ use move_compiler::{
     shared::{known_attributes::KnownAttribute, Flags, NumericalAddress},
     unit_test, CommentMap, Compiler, SteppedCompiler, PASS_CFGIR, PASS_PARSER,
 };
+use pathdiff::diff_paths;
 use std::{collections::BTreeMap, fs, path::Path};
 
 /// Shared flag to keep any temporary results of the test
@@ -20,11 +21,11 @@ const KEEP_TMP: &str = "KEEP";
 const TEST_EXT: &str = "unit_test";
 const VERIFICATION_EXT: &str = "verification";
 
-/// Root of tests which require to set flavor flags.
-const FLAVOR_PATH: &str = "flavors/";
-
 /// Root of tests which require to set skip_attribute_checks flag.
-const SKIP_ATTRIBUTE_CHECKS_PATH: &str = "skip_attribute_checks/";
+const SKIP_ATTRIBUTE_CHECKS_PATH: &str = "/skip_attribute_checks/";
+
+/// Root of tests which require to set warn_of_deprecation_use flag
+const WARN_DEPRECATION_PATH: &str = "/deprecated/";
 
 fn default_testing_addresses() -> BTreeMap<String, NumericalAddress> {
     let mapping = [
@@ -34,7 +35,6 @@ fn default_testing_addresses() -> BTreeMap<String, NumericalAddress> {
         ("A", "0x42"),
         ("B", "0x42"),
         ("K", "0x19"),
-        ("Async", "0x20"),
     ];
     mapping
         .iter()
@@ -90,19 +90,11 @@ fn move_check_testsuite(path: &Path) -> datatest_stable::Result<()> {
 
     let mut flags = Flags::empty();
     if let Some(p) = path.to_str() {
-        if p.contains(FLAVOR_PATH) {
-            // Extract the flavor from the path. Its the directory name of the file.
-            let flavor = path
-                .parent()
-                .expect("has parent")
-                .file_name()
-                .expect("has name")
-                .to_string_lossy()
-                .to_string();
-            flags = flags.set_flavor(flavor)
-        }
         if p.contains(SKIP_ATTRIBUTE_CHECKS_PATH) {
             flags = flags.set_skip_attribute_checks(true);
+        }
+        if p.contains(WARN_DEPRECATION_PATH) {
+            flags = flags.set_warn_of_deprecation_use(true);
         }
     };
     run_test(path, &exp_path, &out_path, flags)?;
@@ -112,10 +104,21 @@ fn move_check_testsuite(path: &Path) -> datatest_stable::Result<()> {
 // Runs all tests under the test/testsuite directory.
 fn run_test(path: &Path, exp_path: &Path, out_path: &Path, flags: Flags) -> anyhow::Result<()> {
     let targets: Vec<String> = vec![path.to_str().unwrap().to_owned()];
+    let relative_move_stdlib_files = {
+        let cwd = std::env::current_dir().expect("We are running in a directory that exists");
+        let abs_files = move_stdlib::move_stdlib_files();
+        abs_files
+            .iter()
+            .map(|file_str| match diff_paths(Path::new(file_str), &cwd) {
+                Some(relative_pathbuf) => relative_pathbuf.display().to_string(),
+                None => file_str.to_string(),
+            })
+            .collect()
+    };
 
     let (files, comments_and_compiler_res) = Compiler::from_files(
         targets,
-        move_stdlib::move_stdlib_files(),
+        relative_move_stdlib_files,
         default_testing_addresses(),
         flags,
         KnownAttribute::get_all_attribute_names(),

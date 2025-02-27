@@ -3,6 +3,7 @@
 
 use crate::server::utils::CONTENT_TYPE_TEXT;
 use aptos_config::config::NodeConfig;
+use aptos_data_client::client::AptosDataClient;
 use aptos_logger::debug;
 use aptos_network::application::storage::PeersAndMetadata;
 use hyper::{
@@ -29,6 +30,7 @@ mod tests;
 
 // The list of endpoints offered by the inspection service
 pub const CONFIGURATION_PATH: &str = "/configuration";
+pub const CONSENSUS_HEALTH_CHECK_PATH: &str = "/consensus_health_check";
 pub const FORGE_METRICS_PATH: &str = "/forge_metrics";
 pub const INDEX_PATH: &str = "/";
 pub const JSON_METRICS_PATH: &str = "/json_metrics";
@@ -45,6 +47,7 @@ pub const UNEXPECTED_ERROR_MESSAGE: &str = "An unexpected error was encountered!
 /// address and handles various endpoint requests.
 pub fn start_inspection_service(
     node_config: NodeConfig,
+    aptos_data_client: AptosDataClient,
     peers_and_metadata: Arc<PeersAndMetadata>,
 ) {
     // Fetch the service port and address
@@ -71,10 +74,16 @@ pub fn start_inspection_service(
         // Create the service function that handles the endpoint requests
         let make_service = make_service_fn(move |_conn| {
             let node_config = node_config.clone();
+            let aptos_data_client = aptos_data_client.clone();
             let peers_and_metadata = peers_and_metadata.clone();
             async move {
                 Ok::<_, Infallible>(service_fn(move |request| {
-                    serve_requests(request, node_config.clone(), peers_and_metadata.clone())
+                    serve_requests(
+                        request,
+                        node_config.clone(),
+                        aptos_data_client.clone(),
+                        peers_and_metadata.clone(),
+                    )
                 }))
             }
         });
@@ -93,6 +102,7 @@ pub fn start_inspection_service(
 async fn serve_requests(
     req: Request<Body>,
     node_config: NodeConfig,
+    aptos_data_client: AptosDataClient,
     peers_and_metadata: Arc<PeersAndMetadata>,
 ) -> Result<Response<Body>, hyper::Error> {
     // Process the request and get the response components
@@ -101,6 +111,11 @@ async fn serve_requests(
             // /configuration
             // Exposes the node configuration
             configuration::handle_configuration_request(&node_config)
+        },
+        CONSENSUS_HEALTH_CHECK_PATH => {
+            // /consensus_health_check
+            // Exposes the consensus health check
+            metrics::handle_consensus_health_check(&node_config).await
         },
         FORGE_METRICS_PATH => {
             // /forge_metrics
@@ -125,7 +140,11 @@ async fn serve_requests(
         PEER_INFORMATION_PATH => {
             // /peer_information
             // Exposes the peer information
-            peer_information::handle_peer_information_request(&node_config, peers_and_metadata)
+            peer_information::handle_peer_information_request(
+                &node_config,
+                aptos_data_client,
+                peers_and_metadata,
+            )
         },
         SYSTEM_INFORMATION_PATH => {
             // /system_information

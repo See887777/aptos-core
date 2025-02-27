@@ -3,89 +3,115 @@
 
 #![forbid(unsafe_code)]
 
-use crate::StateComputeResult;
 use anyhow::{ensure, Result};
-use aptos_crypto::{hash::TransactionAccumulatorHasher, HashValue};
-use aptos_storage_interface::cached_state_view::ShardedStateCache;
+use aptos_crypto::HashValue;
+use aptos_drop_helper::DropHelper;
 use aptos_types::{
-    contract_event::ContractEvent,
-    epoch_state::EpochState,
-    proof::accumulator::InMemoryAccumulator,
-    state_store::ShardedStateUpdates,
-    transaction::{Transaction, TransactionStatus, TransactionToCommit},
+    proof::accumulator::InMemoryTransactionAccumulator,
+    transaction::{TransactionInfo, Version},
 };
-use std::sync::Arc;
+use derive_more::Deref;
+use itertools::zip_eq;
+use std::{clone::Clone, sync::Arc};
 
-#[derive(Default, Debug)]
+#[derive(Clone, Debug, Default, Deref)]
 pub struct LedgerUpdateOutput {
-    pub status: Vec<TransactionStatus>,
-    pub to_commit: Vec<TransactionToCommit>,
-    pub reconfig_events: Vec<ContractEvent>,
-    pub transaction_info_hashes: Vec<HashValue>,
-    pub state_updates_before_last_checkpoint: ShardedStateUpdates,
-    pub sharded_state_cache: ShardedStateCache,
-    /// The in-memory Merkle Accumulator representing a blockchain state consistent with the
-    /// `state_tree`.
-    pub transaction_accumulator: Arc<InMemoryAccumulator<TransactionAccumulatorHasher>>,
+    #[deref]
+    inner: Arc<DropHelper<Inner>>,
 }
 
 impl LedgerUpdateOutput {
-    pub fn new_empty(
-        transaction_accumulator: Arc<InMemoryAccumulator<TransactionAccumulatorHasher>>,
+    pub fn new(
+        transaction_infos: Vec<TransactionInfo>,
+        transaction_info_hashes: Vec<HashValue>,
+        transaction_accumulator: Arc<InMemoryTransactionAccumulator>,
+        parent_accumulator: Arc<InMemoryTransactionAccumulator>,
     ) -> Self {
+        Self::new_impl(Inner {
+            transaction_infos,
+            transaction_info_hashes,
+            transaction_accumulator,
+            parent_accumulator,
+        })
+    }
+
+    pub fn new_empty(transaction_accumulator: Arc<InMemoryTransactionAccumulator>) -> Self {
+        Self::new_impl(Inner::new_empty(transaction_accumulator))
+    }
+
+    #[cfg(any(test, feature = "fuzzing"))]
+    pub fn new_dummy() -> Self {
+        Self::new_empty(Arc::new(InMemoryTransactionAccumulator::new_empty()))
+    }
+
+    pub fn new_dummy_with_root_hash(root_hash: HashValue) -> Self {
+        let transaction_accumulator = Arc::new(
+            InMemoryTransactionAccumulator::new_empty_with_root_hash(root_hash),
+        );
+        Self::new_impl(Inner {
+            parent_accumulator: transaction_accumulator.clone(),
+            transaction_accumulator,
+            ..Default::default()
+        })
+    }
+
+    pub fn reconfig_suffix(&self) -> Self {
+        Self::new_impl(Inner::new_empty(self.transaction_accumulator.clone()))
+    }
+
+    fn new_impl(inner: Inner) -> Self {
         Self {
+            inner: Arc::new(DropHelper::new(inner)),
+        }
+    }
+}
+
+#[derive(Default, Debug)]
+pub struct Inner {
+    pub transaction_infos: Vec<TransactionInfo>,
+    pub transaction_info_hashes: Vec<HashValue>,
+    pub transaction_accumulator: Arc<InMemoryTransactionAccumulator>,
+    pub parent_accumulator: Arc<InMemoryTransactionAccumulator>,
+}
+
+impl Inner {
+    pub fn new_empty(transaction_accumulator: Arc<InMemoryTransactionAccumulator>) -> Self {
+        Self {
+            parent_accumulator: transaction_accumulator.clone(),
             transaction_accumulator,
             ..Default::default()
         }
     }
 
-    pub fn reconfig_suffix(&self) -> Self {
-        Self {
-            transaction_accumulator: Arc::clone(&self.transaction_accumulator),
-            ..Default::default()
-        }
-    }
-
-    pub fn txn_accumulator(&self) -> &Arc<InMemoryAccumulator<TransactionAccumulatorHasher>> {
+    pub fn txn_accumulator(&self) -> &Arc<InMemoryTransactionAccumulator> {
         &self.transaction_accumulator
     }
 
-    pub fn transactions_to_commit(&self) -> &Vec<TransactionToCommit> {
-        &self.to_commit
-    }
-
-    /// Ensure that every block committed by consensus ends with a state checkpoint. That can be
-    /// one of the two cases: 1. a reconfiguration (txns in the proposed block after the txn caused
-    /// the reconfiguration will be retried) 2. a Transaction::StateCheckpoint at the end of the
-    /// block.
-    pub fn ensure_ends_with_state_checkpoint(&self) -> Result<()> {
+    pub fn ensure_transaction_infos_match(
+        &self,
+        transaction_infos: &[TransactionInfo],
+    ) -> Result<()> {
         ensure!(
-            self.to_commit.last().map_or(true, |txn| matches!(
-                txn.transaction(),
-                Transaction::StateCheckpoint(_)
-            )),
-            "Block not ending with a state checkpoint.",
+            self.transaction_infos.len() == transaction_infos.len(),
+            "Lengths don't match. {} vs {}",
+            self.transaction_infos.len(),
+            transaction_infos.len(),
         );
+
+        let mut version = self.first_version();
+        for (txn_info, expected_txn_info) in
+            zip_eq(self.transaction_infos.iter(), transaction_infos.iter())
+        {
+            ensure!(
+                txn_info == expected_txn_info,
+                "Transaction infos don't match. version:{version}, txn_info:{txn_info}, expected_txn_info:{expected_txn_info}",
+            );
+            version += 1;
+        }
         Ok(())
     }
 
-    pub fn as_state_compute_result(
-        &self,
-        parent_accumulator: &Arc<InMemoryAccumulator<TransactionAccumulatorHasher>>,
-        next_epoch_state: Option<EpochState>,
-    ) -> StateComputeResult {
-        let txn_accu = self.txn_accumulator();
-
-        StateComputeResult::new(
-            txn_accu.root_hash(),
-            txn_accu.frozen_subtree_roots().clone(),
-            txn_accu.num_leaves(),
-            parent_accumulator.frozen_subtree_roots().clone(),
-            parent_accumulator.num_leaves(),
-            next_epoch_state,
-            self.status.clone(),
-            self.transaction_info_hashes.clone(),
-            self.reconfig_events.clone(),
-        )
+    pub fn first_version(&self) -> Version {
+        self.parent_accumulator.num_leaves
     }
 }

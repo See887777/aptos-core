@@ -7,6 +7,8 @@ param (
 
 $ErrorActionPreference = 'Stop'
 
+Set-PSDebug -Trace 1
+
 Set-Location (Split-Path -Parent $MyInvocation.MyCommand.Path) | Out-Null; Set-Location '..' -ErrorAction Stop
 
 $global:user_selection = $null
@@ -27,7 +29,7 @@ function welcome_message {
       * Install Aptos build tools: t
       * Install Move Prover tools: y`n
       Selection"
-    
+
     return $message
 }
 
@@ -48,7 +50,6 @@ function build_tools_message {
       * protoc-gen-prost-crate
     * Python (and necessary components)
       * pip
-      * schemathesis
     * LLVM
     * CMake
     * OpenSSL
@@ -71,15 +72,15 @@ function move_prover_message {
 }
 
 function update_versions {
-  try {    
+  try {
     # URL of the Unix script
     $url = "https://raw.githubusercontent.com/aptos-labs/aptos-core/main/scripts/dev_setup.sh"
-    
+
     # Retrieve the content of the file and store it in a variable
-    $content = (Invoke-WebRequest -Uri $url -UseBasicParsing | Select-Object -ExpandProperty Content -First 50) -join "`n"
+    $content = (Invoke-WebRequest -UseBasicParsing -Uri $url | Select-Object -ExpandProperty Content -First 50) -join "`n"
 
     $packages = @($global:grcov_version, $global:protoc_version, $global:dotnet_version, $global:z3_version, $global:boogie_version)
-    
+
     foreach ($package in $packages) {
       $index = $content.IndexOf($package)
 
@@ -104,7 +105,7 @@ function update_versions {
           if ($matching_text -notmatch '\d+\.\d+(\.\d+)?') {
             Write-Error "$package_name cannot be read due to a formatting problem in the source file."
           }
-        } 
+        }
       else {
         Write-Error "Updated $package_name not found."
       }
@@ -117,7 +118,7 @@ function update_versions {
     $global:protoc_version = "21.4"
     $global:dotnet_version = "6.0"
     $global:z3_version = "4.11.2"
-    $global:boogie_version = "2.15.8"
+    $global:boogie_version = "3.0.1"
   }
 }
 
@@ -149,37 +150,37 @@ function check_os {
 }
 
 function install_winget {
-  $xaml_url = "https://www.nuget.org/api/v2/package/Microsoft.UI.Xaml/2.7.1"
-  $xaml_downloadpath = "Microsoft.UI.Xaml.2.7.1.nupkg.zip"
-  $xaml_filepath = "Microsoft.UI.Xaml.2.7.1.nupkg\tools\AppX\x64\Release\Microsoft.UI.Xaml.2.7.appx"
+  $xaml_url = "https://globalcdn.nuget.org/packages/microsoft.ui.xaml.2.8.6.nupkg"
+  $xaml_downloadpath = "Microsoft.UI.Xaml.2.8.6.nupkg.zip"
+  $xaml_filepath = "Microsoft.UI.Xaml.2.8.6.nupkg\tools\AppX\x64\Release\Microsoft.UI.Xaml.2.8.appx"
 
   $vclib_url = "https://aka.ms/Microsoft.VCLibs.x$global:architecture.14.00.Desktop.appx"
   $vclib_downloadpath = "Microsoft.VCLibs.x$global:architecture.14.00.Desktop.appx"
 
-  $installer_url = "https://github.com/microsoft/winget-cli/releases/download/v1.4.10173/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
+  $installer_url = "https://github.com/microsoft/winget-cli/releases/download/v1.7.11132/Microsoft.DesktopAppInstaller_8wekyb3d8bbwe.msixbundle"
   $installer_downloadpath = "msftwinget.msixbundle"
 
-  $license_url = "https://github.com/microsoft/winget-cli/releases/download/v1.4.10173/3463fe9ad25e44f28630526aa9ad5648_License1.xml"  
+  $license_url = "https://github.com/microsoft/winget-cli/releases/download/v1.7.11132/ccfd1d114c9641fc8491f3c7c179829e_License1.xml"
   $license_downloadpath = "license.xml"
-  
+
   # Download and extract XAML (dependency)
-  Invoke-WebRequest -Uri $xaml_url -OutFile $xaml_downloadpath -ErrorAction SilentlyContinue
+  Safe-Download-File $xaml_url -Destination $xaml_downloadpath
   Expand-Archive $xaml_downloadpath -ErrorAction SilentlyContinue
 
   # Download and install VCLibs and XAML (dependencies)
-  Invoke-WebRequest -Uri $vclib_url -OutFile $vclib_downloadpath -ErrorAction SilentlyContinue
-  Add-AppxPackage $vclib_downloadpath -ErrorAction SilentlyContinue
-  Add-AppxPackage $xaml_filepath -ErrorAction SilentlyContinue
+  Safe-Download-File -Source $vclib_url -Destination $vclib_downloadpath
+  Add-AppxPackage $vclib_downloadpath
+  Add-AppxPackage $xaml_filepath
 
   # Download and install WinGet
-  Invoke-WebRequest -Uri $installer_url -OutFile $installer_downloadpath -ErrorAction SilentlyContinue
-  Invoke-WebRequest -Uri $license_url -OutFile $license_downloadpath -ErrorAction SilentlyContinue
-  Add-AppxProvisionedPackage -Online -PackagePath $installer_downloadpath -LicensePath $license_downloadpath -ErrorAction SilentlyContinue
+  Safe-Download-File -Source $installer_url -Destination $installer_downloadpath
+  Safe-Download-File -Source $license_url -Destination $license_downloadpath
+  Add-AppxProvisionedPackage -Online -PackagePath $installer_downloadpath -LicensePath $license_downloadpath
 
   # Cleanup
   Remove-Item $xaml_filepath
-  Remove-Item $vclib_downloadpath 
-  Remove-Item $installer_downloadpath 
+  Remove-Item $vclib_downloadpath
+  Remove-Item $installer_downloadpath
   Remove-Item $license_downloadpath
 
   # Add WinGet directory to user PATH environment variable
@@ -193,7 +194,7 @@ function install_winget {
 function check_for_winget {
   if (Get-Command winget -ErrorAction SilentlyContinue) {
     return
-  } 
+  }
   elseif (Test-Path "$env:LOCALAPPDATA\Microsoft\WindowsApps\winget.exe") {
     [Environment]::SetEnvironmentVariable("PATH", "$env:PATH;$env:LOCALAPPDATA\Microsoft\WindowsApps", "User")
     # Reload the PATH environment variables for this session
@@ -212,7 +213,7 @@ function check_package { # Checks for packages installed with winget or typical 
   if ((winget list --name $package) -match 'No installed package found matching input criteria.') {
     Write-Host "Installing $package..."
     return $true
-  }   
+  }
   elseif ((winget upgrade | Out-String).Contains($package)) {
     Write-Host "$package is already installed, but an update is available."
     return $false
@@ -259,7 +260,7 @@ function get_msvc_version {  # Finds the MSVC version number and creates a valid
     # Extract the version number from the file path using regex
     $msvcversion = $filepath.FullName -replace ".*MSVC\\(\d+\.\d+\.\d+)\\.*", '$1'
     return $msvcversion
-  } 
+  }
   else {
     Write-Warning "MSVC not found: $pathpattern"
     return $null
@@ -276,11 +277,11 @@ function set_msvc_env_variables {  # Sets the environment variables based on the
 function install_rustup {
   $result = check_package "Rustup"
   if ($result) {
-    winget install Rustlang.Rustup --silent
+    winget install Rustlang.Rustup --silent --accept-source-agreements
     Exit
 	}
   else {
-    winget upgrade --id Rustlang.Rustup
+    winget upgrade --id Rustlang.Rustup --accept-source-agreements
   }
   # Reload the PATH environment variables for this session
   $env:Path = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
@@ -294,16 +295,16 @@ function install_rustup {
 
 function install_protoc {
   if (!(Get-Command protoc -ErrorAction SilentlyContinue)) {
-      
+
     $protoc_zip = "protoc-$global:protoc_version-win$global:architecture.zip"
     $protoc_folder = "protoc-$global:protoc_version-win$global:architecture"
     $protoc_url = "https://github.com/protocolbuffers/protobuf/releases/download/v$global:protoc_version/$protoc_zip"
-     
+
     # Download and extract Protoc
-    Invoke-WebRequest -Uri $protoc_url -OutFile (New-Item -Path "$env:USERPROFILE\Downloads\$protoc_zip" -Force) -ErrorAction SilentlyContinue
+    Safe-Download-File $protoc_url -Destination (New-Item -Path "$env:USERPROFILE\Downloads\$protoc_zip" -Force)
     Expand-Archive -Path "$env:USERPROFILE\Downloads\$protoc_zip" -DestinationPath "$env:USERPROFILE\$protoc_folder" -ErrorAction SilentlyContinue
     Remove-Item "$env:USERPROFILE\Downloads\$protoc_zip"
-      
+
     # Add Protoc installation directory to user PATH environment variable
     [Environment]::SetEnvironmentVariable("PATH", "$env:PATH;$env:USERPROFILE\$protoc_folder\bin", "User")
   }
@@ -324,80 +325,79 @@ function install_cargo_plugins {  # Installs Grcov, protoc components, and cargo
 function install_llvm {
   $result = check_package "LLVM"
   if ($result) {
-    winget install LLVM.LLVM --silent
+    winget install LLVM.LLVM --silent --accept-source-agreements
 	}
   else {
-    winget upgrade --id LLVM.LLVM
+    winget upgrade --id LLVM.LLVM --accept-source-agreements
   }
 }
 
 function install_openssl {
   $result = check_package "OpenSSL"
   if ($result) {
-    winget install ShiningLight.OpenSSL --silent
+    winget install ShiningLight.OpenSSL --silent --accept-source-agreements
 	}
   else {
-    winget upgrade --id ShiningLight.OpenSSL --silent
+    winget upgrade --id ShiningLight.OpenSSL --silent --accept-source-agreements
   }
 }
 
 function install_nodejs {
   $result = check_package "Node.js"
   if ($result) {
-    winget install OpenJS.NodeJS --silent
+    winget install OpenJS.NodeJS --silent --accept-source-agreements
 	}
   else {
-    winget upgrade --id OpenJS.NodeJS --silent
+    winget upgrade --id OpenJS.NodeJS --silent --accept-source-agreements
   }
 }
 
 function install_python {
   $result = check_package "Python"
   if ($result) {
-    winget install Python.Python.3.11 --silent
+    winget install Python.Python.3.11 --silent --accept-source-agreements
     # Reload the PATH environment variables for this session
     $env:Path = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
 	}
   else {
-    winget upgrade --id Python.Python.3.11 --silent
+    winget upgrade --id Python.Python.3.11 --silent --accept-source-agreements
   }
   python -m pip install --upgrade pip
-  python -m pip install schemathesis
 }
 
 function install_pnpm {
   $result = check_package "pnpm"
   if ($result) {
-    winget install pnpm.pnpm --silent
+    winget install pnpm.pnpm --silent --accept-source-agreements
 	}
   else {
-    winget upgrade --id pnpm.pnpm
+    winget upgrade --id pnpm.pnpm --accept-source-agreements
   }
 }
 
-function install_postgresql { 
-  $result = check_package "PostgreSQL"
-  $psql_version = winget show -e PostgreSQL | Select-String Version
+function install_postgresql {
+  $result = check_package "PostgreSQL 15"
+  $psql_version = winget show -e "PostgreSQL 15" --accept-source-agreements | Select-String Version
   $psql_version = $psql_version.Line.Split(':')[1].Split('.')[0].Trim()
   $psql_path = "$env:PATH;$env:PROGRAMFILES\PostgreSQL\$psql_version\bin"
-  
+
   if ($result) {
-    winget install PostgreSQL.PostgreSQL --silent
+    winget install PostgreSQL.PostgreSQL.15 --silent --accept-source-agreements
     [Environment]::SetEnvironmentVariable("PATH", $psql_path, "User")
   }
   elseif (!(Get-Command psql -ErrorAction SilentlyContinue)) {
     [Environment]::SetEnvironmentVariable("PATH", $psql_path, "User")
   }
   else {
-    winget upgrade --id PostgreSQL.PostgreSQL
+    winget upgrade --id PostgreSQL.PostgreSQL.15 --accept-source-agreements
   }
 }
 
 function install_git {
   if (!(Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Host "Installing Git..."
-    winget install Git.Git --silent
-  } 
+    winget install Git.Git --silent --accept-source-agreements
+  }
   else {
     Write-Host "Git is already installed."
   }
@@ -409,15 +409,15 @@ function install_dotnet {
     Write-Host "Installing Microsoft DotNet..."
     winget install "Microsoft.DotNet.SDK.$dotnet_version" --accept-source-agreements --silent
 
-    $dotnet_version = winget show -e "Microsoft.DotNet.SDK.$dotnet_version" | Select-String Version
+    $dotnet_version = winget show -e "Microsoft.DotNet.SDK.$dotnet_version" | Select-String -pattern "Version|버전"
     $dotnet_version = $dotnet_version.Line.Split(':')[1].Trim()
     [Environment]::SetEnvironmentVariable("DOTNET_ROOT", "$env:PROGRAMFILES\dotnet", "User")
     [Environment]::SetEnvironmentVariable("PATH", "$env:PATH;$env:PROGRAMFILES\dotnet\sdk\$dotnet_version\DotnetTools;$env:USERPROFILE\.dotnet\tools", "User")
-    
+
     # Reload the PATH environment variables for this session
     $env:Path = [System.Environment]::GetEnvironmentVariable("PATH", "User") + ";" + [System.Environment]::GetEnvironmentVariable("PATH", "Machine")
     Write-Host "User environment variables set for DotNet"
-  } 
+  }
   else {
     Write-Host "Microsoft DotNet is already installed."
   }
@@ -429,15 +429,15 @@ function install_z3 {
     $uri = "z3-$global:z3_version"
     $z3_zip = "z3-$global:z3_version-x$global:architecture-win.zip"
     $z3_filepath = "$env:USERPROFILE\$z3_zip"
-    
+
     # Download and extract Z3
-    Invoke-WebRequest -Uri "https://github.com/Z3Prover/z3/releases/download/$uri/$z3_zip" -OutFile (New-Item -Path "$z3_filepath" -Force) -ErrorAction SilentlyContinue
+    Safe-Download-File -Source "https://github.com/Z3Prover/z3/releases/download/$uri/$z3_zip" -Destination (New-Item -Path "$z3_filepath" -Force)
     Expand-Archive $z3_filepath -DestinationPath "$env:USERPROFILE" -ErrorAction SilentlyContinue
     Remove-Item $z3_filepath
 
     # Create a user environment variable for Z3
     $z3_exe_path = "$env:USERPROFILE\z3-$global:z3_version-x$global:architecture-win\bin\z3.exe"
-    [Environment]::SetEnvironmentVariable("Z3_EXE", "$z3_exe_path", "User")   
+    [Environment]::SetEnvironmentVariable("Z3_EXE", "$z3_exe_path", "User")
     Write-Host "User environment variable set for Z3"
     }
   else {
@@ -452,7 +452,7 @@ function install_boogie {
     $boogie_exe_path = "$env:USERPROFILE\.dotnet\tools\boogie.exe"
     [Environment]::SetEnvironmentVariable("BOOGIE_EXE", $boogie_exe_path, "User")
     Write-Host "User environment variables set for Boogie"
-  } 
+  }
   else {
     Write-Host "Boogie is already installed."
   }
@@ -478,6 +478,29 @@ function install_move_prover {
   install_boogie
   install_z3
   install_git
+}
+
+function Safe-Download-File {
+    param (
+        [Parameter(Mandatory=$true)]
+        [string]$Source,
+
+        [Parameter(Mandatory=$true)]
+        [string]$Destination
+    )
+
+    # Check if the file exists
+    if (Test-Path -Path $Destination) {
+        Write-Host "File already exists at $Destination. Deleting the existing file..." -ForegroundColor Yellow
+        # Remove the existing file
+        Remove-Item -Path $Destination -Force
+        Write-Host "Existing file deleted." -ForegroundColor Green
+    }
+    
+    # Start the download
+    Write-Host "Starting the download from $Source to $Destination..." -ForegroundColor Blue
+    Start-BitsTransfer -Source $Source -Destination $Destination
+    Write-Host "Download completed successfully." -ForegroundColor Green
 }
 
 verify_architecture

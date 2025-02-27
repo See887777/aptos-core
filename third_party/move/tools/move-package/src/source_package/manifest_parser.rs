@@ -3,7 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use super::layout::SourcePackageLayout;
-use crate::{package_hooks, source_package::parsed_manifest as PM, Architecture};
+use crate::{package_hooks, source_package::parsed_manifest as PM};
 use anyhow::{bail, format_err, Context, Result};
 use move_command_line_common::env::MOVE_HOME;
 use move_core_types::account_address::{AccountAddress, AccountAddressParseError};
@@ -197,13 +197,12 @@ pub fn parse_dependencies(tval: TV) -> Result<PM::Dependencies> {
 pub fn parse_build_info(tval: TV) -> Result<PM::BuildInfo> {
     match tval {
         TV::Table(mut table) => {
-            warn_if_unknown_field_names(&table, &["language_version", "arch"]);
+            warn_if_unknown_field_names(&table, &["language_version"]);
             Ok(PM::BuildInfo {
                 language_version: table
                     .remove("language_version")
                     .map(parse_version)
                     .transpose()?,
-                architecture: table.remove("arch").map(parse_architecture).transpose()?,
             })
         },
         x => bail!(
@@ -355,7 +354,6 @@ fn parse_dependency(dep_name: &str, tval: TV) -> Result<PM::Dependency> {
                     })
                 },
                 (None, Some(git), None) => {
-                    let move_home = MOVE_HOME.clone();
                     let rev_name = match table.remove("rev") {
                         None => bail!("Git revision not supplied for dependency"),
                         Some(r) => Symbol::from(
@@ -367,11 +365,7 @@ fn parse_dependency(dep_name: &str, tval: TV) -> Result<PM::Dependency> {
                     let git_url = git
                         .as_str()
                         .ok_or_else(|| anyhow::anyhow!("Git URL not a string"))?;
-                    let local_path = PathBuf::from(move_home).join(format!(
-                        "{}_{}",
-                        url_to_file_name(git_url),
-                        rev_name.replace('/', "__")
-                    ));
+                    let local_path = git_repo_cache_path(git_url, rev_name.as_str());
                     let subdir = PathBuf::from(match table.remove("subdir") {
                         None => "".to_string(),
                         Some(path) => path
@@ -511,10 +505,6 @@ fn parse_version(tval: TV) -> Result<PM::Version> {
     ))
 }
 
-fn parse_architecture(tval: TV) -> Result<Architecture> {
-    Architecture::try_parse_from_str(tval.as_str().unwrap())
-}
-
 fn parse_digest(tval: TV) -> Result<PM::PackageDigest> {
     let digest_str = tval
         .as_str()
@@ -570,4 +560,14 @@ fn check_for_required_field_names(
     }
 
     Ok(())
+}
+
+/// Gets the local path to download the package from a git repo
+pub fn git_repo_cache_path(git_url: &str, rev_name: &str) -> PathBuf {
+    let move_home = MOVE_HOME.clone();
+    PathBuf::from(move_home).join(format!(
+        "{}_{}",
+        url_to_file_name(git_url),
+        rev_name.replace('/', "__")
+    ))
 }

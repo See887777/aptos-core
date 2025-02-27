@@ -1,7 +1,7 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::{natives::any::Any, unzip_metadata_str};
+use crate::unzip_metadata_str;
 use anyhow::bail;
 use aptos_gas_schedule::gas_params::natives::aptos_framework::*;
 use aptos_native_interface::{
@@ -9,7 +9,7 @@ use aptos_native_interface::{
     SafeNativeResult,
 };
 use aptos_types::{
-    on_chain_config::OnChainConfig, transaction::ModuleBundle, vm_status::StatusCode,
+    move_any::Any, on_chain_config::OnChainConfig, transaction::ModuleBundle, vm_status::StatusCode,
 };
 use better_any::{Tid, TidAble};
 use move_binary_format::errors::{PartialVMError, PartialVMResult};
@@ -192,11 +192,36 @@ const EALREADY_REQUESTED: u64 = 0x03_0000;
 const ARBITRARY_POLICY: u8 = 0;
 
 /// The native code context.
-#[derive(Tid, Default)]
+#[derive(Tid)]
 pub struct NativeCodeContext {
-    /// Remembers whether the publishing of a module bundle was requested during transaction
-    /// execution.
-    pub requested_module_bundle: Option<PublishRequest>,
+    /// If false, publish requests are ignored and any attempts to publish code result in runtime
+    /// errors.
+    enabled: bool,
+    /// Possibly stores (if not [None]) the request to publish a module bundle. The request is made
+    /// using the native code defined in this context. It is later extracted by the VM for further
+    /// checks and processing the actual publish.
+    requested_module_bundle: Option<PublishRequest>,
+}
+
+impl NativeCodeContext {
+    #[allow(clippy::new_without_default)]
+    pub fn new() -> Self {
+        Self {
+            enabled: true,
+            requested_module_bundle: None,
+        }
+    }
+
+    pub fn extract_publish_request(&mut self, disable: bool) -> Option<PublishRequest> {
+        if !self.enabled {
+            return None;
+        }
+
+        if disable {
+            self.enabled = false;
+        }
+        self.requested_module_bundle.take()
+    }
 }
 
 /// Represents a request for code publishing made from a native call and to be processed
@@ -316,8 +341,8 @@ fn native_request_publish(
     });
 
     let code_context = context.extensions_mut().get_mut::<NativeCodeContext>();
-    if code_context.requested_module_bundle.is_some() {
-        // Can't request second time.
+    if code_context.requested_module_bundle.is_some() || !code_context.enabled {
+        // Can't request second time or if publish requests are not allowed.
         return Err(SafeNativeError::Abort {
             abort_code: EALREADY_REQUESTED,
         });
@@ -329,7 +354,7 @@ fn native_request_publish(
         allowed_deps,
         check_compat: policy != ARBITRARY_POLICY,
     });
-    // TODO(Gas): charge gas for requesting code load (charge for actual code loading done elsewhere)
+
     Ok(smallvec![])
 }
 

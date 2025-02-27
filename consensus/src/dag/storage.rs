@@ -6,7 +6,9 @@ use crate::dag::{CertifiedNode, Node};
 use aptos_consensus_types::common::{Author, Round};
 use aptos_crypto::HashValue;
 use aptos_types::ledger_info::LedgerInfoWithSignatures;
+use std::collections::HashMap;
 
+#[derive(Clone)]
 pub struct CommitEvent {
     node_id: NodeId,
     parents: Vec<Author>,
@@ -34,12 +36,12 @@ impl CommitEvent {
         self.node_id.author()
     }
 
-    pub fn parents(&self) -> Vec<Author> {
-        self.parents.clone()
+    pub fn parents(&self) -> &[Author] {
+        &self.parents
     }
 
-    pub fn failed_authors(&self) -> Vec<Author> {
-        self.failed_authors.clone()
+    pub fn failed_authors(&self) -> &[Author] {
+        &self.failed_authors
     }
 }
 
@@ -65,4 +67,6 @@ pub trait DAGStorage: Send + Sync {
     fn get_latest_k_committed_events(&self, k: u64) -> anyhow::Result<Vec<CommitEvent>>;
 
     fn get_latest_ledger_info(&self) -> anyhow::Result<LedgerInfoWithSignatures>;
+
+    fn get_epoch_to_proposers(&self) -> HashMap<u64, Vec<Author>>;
 }

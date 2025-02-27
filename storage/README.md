@@ -150,6 +150,32 @@ storage:
   enable_indexer: false
 ```
 
+## Internal Indexer
+
+Internal indexer is used to provide data for the following node APIs after DB sharding.
+
+Account based event APIs
+* /accounts/{address}/events/{event_handle}/{field_name}
+* /accounts/{address}/events/{creation_number}
+
+Account based transaction API
+* /accounts/{address}/transactions
+
+Account based resource APIs
+* /accounts/{address}/modules
+* /accounts/{address}/resources
+
+The internal indexer is configured as below.
+The batch size is used to chunk the transactions to smaller batches before writting to internal indexer DB.
+```
+indexer_db_config:
+    enable_transaction: true // this is required for account based transaction API
+    enable_event: true // this is required for account based event APIs
+    enable_statekeys: true // this is required for account based resource APIs
+    batch_size: 10000
+```
+
+
 ## Backup and Restore CLI tools
 
 The DB backup is a concise format to preserve the raw data of the blockchain. It
@@ -172,14 +198,14 @@ https://github.com/aptos-labs/aptos-core/tree/main/storage/backup/backup-cli/src
 
 
 ```bash
-$ cargo run -p aptos-db-tool backup continuously --help
+$ cargo run -p aptos-debugger aptos-db backup continuously --help
     Finished dev [unoptimized + debuginfo] target(s) in 1.06s
-     Running `target/debug/aptos-db-tool backup continuously --help`
+     Running `target/debug/aptos-debugger aptos-db backup continuously --help`
 aptos-db-tool-backup-continuously 0.1.0
 Run the backup coordinator which backs up blockchain data continuously off a Aptos Node.
 
 USAGE:
-    aptos-db-tool backup continuously [OPTIONS] <--local-fs-dir <LOCAL_FS_DIR>|--command-adapter-config <COMMAND_ADAPTER_CONFIG>>
+    aptos-debugger aptos-db backup continuously [OPTIONS] <--local-fs-dir <LOCAL_FS_DIR>|--command-adapter-config <COMMAND_ADAPTER_CONFIG>>
 
 OPTIONS:
         --backup-service-address <ADDRESS>
@@ -189,7 +215,7 @@ OPTIONS:
         --command-adapter-config <COMMAND_ADAPTER_CONFIG>
             Select the CommandAdapter backup storage type, which reads shell commands with which it
             communicates with either a local file system or a remote cloud storage. Compression or
-            other fitlers can be added as part of the commands. See a sample config here:
+            other filters can be added as part of the commands. See a sample config here:
             https://github.com/aptos-labs/aptos-networks/tree/main/testnet/backups
 
         --concurrent-downloads <CONCURRENT_DOWNLOADS>
@@ -237,14 +263,14 @@ OPTIONS:
 
 Example command:
 ```
-$ cargo run -p aptos-db-tool backup continuously \
+$ cargo run -p aptos-debugger aptos-db backup continuously \
     --metadata-cache-dir ./mc \
     --state-snapshot-interval-epochs 1 \
     --concurrent-downloads 4 \
     --command-adapter-config s3.yaml
 ```
 
-There are other subcommands of the aptos-db-tool, all of which are experimental
+There are other subcommands of the aptos-debugger aptos-db, all of which are experimental
 and can mess up with the backup storage, use only at your own risk.
 
 ### Creating an AptosDB with minimal data at the latest epoch ending in a backup
@@ -304,7 +330,7 @@ RUST_LOG=info ./aptos \
 ```
 
 This is basically the same functionality with
-the "auto" mode of `cargo run -p aptos-db-tool restore`, but with more
+the "auto" mode of `cargo run -p aptos-debugger aptos-db restore`, but with more
 limited options. The `restore` tool mentioned has the ability to manually
 hack a local DB and is highly experimental. It's not recommended is be used if
 you are not 100% aware of what you are doing.

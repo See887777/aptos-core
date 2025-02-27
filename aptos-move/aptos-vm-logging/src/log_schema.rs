@@ -4,8 +4,7 @@
 
 use aptos_crypto::HashValue;
 use aptos_logger::Schema;
-use aptos_state_view::StateViewId;
-use aptos_types::transaction::Version;
+use aptos_types::{state_store::StateViewId, transaction::Version};
 use serde::Serialize;
 
 #[derive(Schema, Clone)]
@@ -51,6 +50,13 @@ impl AdapterLogSchema {
                 block_id: None,
                 first_version: None,
                 base_version: Some(base_version),
+                txn_idx,
+            },
+            StateViewId::Replay => Self {
+                name: LogEntry::Execution,
+                block_id: None,
+                first_version: None,
+                base_version: None,
                 txn_idx,
             },
             StateViewId::Miscellaneous => Self {

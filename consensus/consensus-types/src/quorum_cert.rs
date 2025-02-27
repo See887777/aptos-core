@@ -2,7 +2,7 @@
 // Parts of the project are originally copyright © Meta Platforms, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::vote_data::VoteData;
+use crate::{vote_data::VoteData, wrapped_ledger_info::WrappedLedgerInfo};
 use anyhow::{ensure, Context};
 use aptos_bitvec::BitVec;
 use aptos_crypto::{hash::CryptoHash, HashValue};
@@ -38,6 +38,17 @@ impl QuorumCert {
         QuorumCert {
             vote_data,
             signed_ledger_info,
+        }
+    }
+
+    #[cfg(any(test, feature = "fuzzing"))]
+    pub fn dummy() -> Self {
+        Self {
+            vote_data: VoteData::dummy(),
+            signed_ledger_info: LedgerInfoWithSignatures::new(
+                LedgerInfo::dummy(),
+                AggregateSignature::empty(),
+            ),
         }
     }
 
@@ -150,5 +161,9 @@ impl QuorumCert {
             executed_commit_info
         );
         Ok(Self::new(self.vote_data.clone(), executed_ledger_info))
+    }
+
+    pub fn into_wrapped_ledger_info(&self) -> WrappedLedgerInfo {
+        WrappedLedgerInfo::new(self.vote_data.clone(), self.ledger_info().clone())
     }
 }

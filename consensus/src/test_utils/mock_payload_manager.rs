@@ -2,21 +2,22 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    error::QuorumStoreError, payload_client::QuorumStoreClient, state_replication::PayloadClient,
+    error::QuorumStoreError,
+    payload_client::{user::quorum_store_client::QuorumStoreClient, PayloadClient},
 };
 use anyhow::Result;
 use aptos_consensus_types::{
-    block::block_test_utils::random_payload,
-    common::{Payload, PayloadFilter},
-    request_response::GetPayloadCommand,
+    block::block_test_utils::random_payload, common::Payload,
+    payload_pull_params::PayloadPullParameters, request_response::GetPayloadCommand,
 };
 use aptos_types::{
     transaction::{ExecutionStatus, TransactionStatus},
+    validator_txn::ValidatorTransaction,
     vm_status::StatusCode,
 };
+use aptos_validator_transaction_pool as vtxn_pool;
 use futures::{channel::mpsc, future::BoxFuture};
 use rand::Rng;
-use std::time::Duration;
 
 #[allow(dead_code)]
 pub struct MockPayloadManager {
@@ -53,16 +54,14 @@ impl PayloadClient for MockPayloadManager {
     /// The returned future is fulfilled with the vector of SignedTransactions
     async fn pull_payload(
         &self,
-        _max_poll_time: Duration,
-        _max_size: u64,
-        _max_bytes: u64,
-        _exclude: PayloadFilter,
+        _params: PayloadPullParameters,
+        _validator_txn_filter: vtxn_pool::TransactionFilter,
         _wait_callback: BoxFuture<'static, ()>,
-        _pending_ordering: bool,
-        _pending_uncommitted_blocks: usize,
-        _recent_fill_fraction: f32,
-    ) -> Result<Payload, QuorumStoreError> {
+    ) -> Result<(Vec<ValidatorTransaction>, Payload), QuorumStoreError> {
         // generate 1k txn is too slow with coverage instrumentation
-        Ok(random_payload(10))
+        Ok((
+            vec![ValidatorTransaction::dummy(vec![0xFF; 1])],
+            random_payload(10),
+        ))
     }
 }

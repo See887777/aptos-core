@@ -24,14 +24,6 @@ spec aptos_std::simple_map {
         pragma intrinsic;
     }
 
-    spec new {
-        pragma intrinsic;
-    }
-
-    spec new_from {
-        pragma intrinsic;
-    }
-
     spec create {
         pragma intrinsic;
     }
@@ -76,29 +68,53 @@ spec aptos_std::simple_map {
         pragma verify=false;
     }
 
-    spec to_vec_pair<Key: store, Value: store>(map: SimpleMap<Key, Value>): (vector<Key>, vector<Value>) {
+    spec new<Key: store, Value: store>(): SimpleMap<Key, Value> {
+        pragma intrinsic;
+        pragma opaque;
+        aborts_if [abstract] false;
+        ensures [abstract] spec_len(result) == 0;
+        ensures [abstract] forall k: Key: !spec_contains_key(result, k);
+    }
+
+    spec new_from<Key: store, Value: store>(
+    keys: vector<Key>,
+    values: vector<Value>,
+    ): SimpleMap<Key, Value> {
+        pragma intrinsic;
+        pragma opaque;
+        aborts_if [abstract] false;
+        ensures [abstract] spec_len(result) == len(keys);
+        ensures [abstract] forall k: Key: spec_contains_key(result, k) <==> vector::spec_contains(keys, k);
+        ensures [abstract] forall i in 0..len(keys):
+            spec_get(result, vector::borrow(keys, i)) == vector::borrow(values, i);
+    }
+
+    spec to_vec_pair<Key: store, Value: store>(self: SimpleMap<Key, Value>): (vector<Key>, vector<Value>) {
         pragma intrinsic;
         pragma opaque;
         ensures [abstract]
             forall k: Key: vector::spec_contains(result_1, k) <==>
-                spec_contains_key(map, k);
+                spec_contains_key(self, k);
         ensures [abstract] forall i in 0..len(result_1):
-            spec_get(map, vector::borrow(result_1, i)) == vector::borrow(result_2, i);
+            spec_get(self, vector::borrow(result_1, i)) == vector::borrow(result_2, i);
     }
 
     spec upsert<Key: store, Value: store>(
-        map: &mut SimpleMap<Key, Value>,
+        self: &mut SimpleMap<Key, Value>,
         key: Key,
         value: Value
         ): (std::option::Option<Key>, std::option::Option<Value>) {
         pragma intrinsic;
         pragma opaque;
-        ensures [abstract] !spec_contains_key(old(map), key) ==> option::is_none(result_1);
-        ensures [abstract] !spec_contains_key(old(map), key) ==> option::is_none(result_2);
-        ensures [abstract] spec_contains_key(map, key);
-        ensures [abstract] spec_get(map, key) == value;
-        ensures [abstract] spec_contains_key(old(map), key) ==> ((option::is_some(result_1)) && (option::spec_borrow(result_1) == key));
-        ensures [abstract] spec_contains_key(old(map), key) ==> ((option::is_some(result_2)) && (option::spec_borrow(result_2) == spec_get(old(map), key)));
+        aborts_if [abstract] false;
+        ensures [abstract] !spec_contains_key(old(self), key) ==> option::is_none(result_1);
+        ensures [abstract] !spec_contains_key(old(self), key) ==> option::is_none(result_2);
+        ensures [abstract] spec_contains_key(self, key);
+        ensures [abstract] spec_get(self, key) == value;
+        ensures [abstract] spec_contains_key(old(self), key) ==> ((option::is_some(result_1)) && (option::spec_borrow(result_1) == key));
+        ensures [abstract] spec_contains_key(old(self), key) ==> ((option::is_some(result_2)) && (option::spec_borrow(result_2) == spec_get(old(
+            self
+        ), key)));
     }
 
     // Specification functions for tables

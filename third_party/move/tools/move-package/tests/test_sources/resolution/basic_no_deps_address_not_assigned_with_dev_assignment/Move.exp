@@ -3,6 +3,7 @@ ResolutionGraph {
     build_options: BuildConfig {
         dev_mode: true,
         test_mode: false,
+        override_std: None,
         generate_docs: false,
         generate_abis: false,
         generate_move_model: false,
@@ -12,14 +13,26 @@ ResolutionGraph {
         ),
         force_recompilation: false,
         additional_named_addresses: {},
-        architecture: None,
         fetch_deps_only: false,
         skip_fetch_latest_git_deps: false,
         compiler_config: CompilerConfig {
             bytecode_version: None,
-            known_attributes: {},
+            known_attributes: {
+                "bytecode_instruction",
+                "deprecated",
+                "expected_failure",
+                "lint::skip",
+                "native_interface",
+                "test",
+                "test_only",
+                "verify_only",
+            },
             skip_attribute_checks: false,
-            compiler_version: None,
+            compiler_version: Some(
+                V2_0,
+            ),
+            language_version: None,
+            experiments: [],
         },
     },
     root_package: SourceManifest {

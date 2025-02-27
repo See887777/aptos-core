@@ -1,5 +1,5 @@
 
-<a name="0x3_token"></a>
+<a id="0x3_token"></a>
 
 # Module `0x3::token`
 
@@ -19,12 +19,25 @@ Checkout our developer doc on our token standard https://aptos.dev/standards
 -  [Struct `CollectionData`](#0x3_token_CollectionData)
 -  [Struct `WithdrawCapability`](#0x3_token_WithdrawCapability)
 -  [Struct `DepositEvent`](#0x3_token_DepositEvent)
+-  [Struct `TokenDeposit`](#0x3_token_TokenDeposit)
+-  [Struct `Deposit`](#0x3_token_Deposit)
 -  [Struct `WithdrawEvent`](#0x3_token_WithdrawEvent)
+-  [Struct `Withdraw`](#0x3_token_Withdraw)
+-  [Struct `TokenWithdraw`](#0x3_token_TokenWithdraw)
 -  [Struct `CreateTokenDataEvent`](#0x3_token_CreateTokenDataEvent)
+-  [Struct `CreateTokenData`](#0x3_token_CreateTokenData)
+-  [Struct `TokenDataCreation`](#0x3_token_TokenDataCreation)
 -  [Struct `MintTokenEvent`](#0x3_token_MintTokenEvent)
+-  [Struct `MintToken`](#0x3_token_MintToken)
+-  [Struct `Mint`](#0x3_token_Mint)
 -  [Struct `BurnTokenEvent`](#0x3_token_BurnTokenEvent)
+-  [Struct `BurnToken`](#0x3_token_BurnToken)
+-  [Struct `Burn`](#0x3_token_Burn)
 -  [Struct `MutateTokenPropertyMapEvent`](#0x3_token_MutateTokenPropertyMapEvent)
+-  [Struct `MutateTokenPropertyMap`](#0x3_token_MutateTokenPropertyMap)
+-  [Struct `MutatePropertyMap`](#0x3_token_MutatePropertyMap)
 -  [Struct `CreateCollectionEvent`](#0x3_token_CreateCollectionEvent)
+-  [Struct `CreateCollection`](#0x3_token_CreateCollection)
 -  [Constants](#@Constants_0)
 -  [Function `create_collection_script`](#0x3_token_create_collection_script)
 -  [Function `create_token_script`](#0x3_token_create_token_script)
@@ -178,6 +191,7 @@ Checkout our developer doc on our token standard https://aptos.dev/standards
 <pre><code><b>use</b> <a href="../../aptos-framework/doc/account.md#0x1_account">0x1::account</a>;
 <b>use</b> <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error">0x1::error</a>;
 <b>use</b> <a href="../../aptos-framework/doc/event.md#0x1_event">0x1::event</a>;
+<b>use</b> <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/features.md#0x1_features">0x1::features</a>;
 <b>use</b> <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/option.md#0x1_option">0x1::option</a>;
 <b>use</b> <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/signer.md#0x1_signer">0x1::signer</a>;
 <b>use</b> <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string">0x1::string</a>;
@@ -189,7 +203,7 @@ Checkout our developer doc on our token standard https://aptos.dev/standards
 
 
 
-<a name="0x3_token_Token"></a>
+<a id="0x3_token_Token"></a>
 
 ## Struct `Token`
 
@@ -230,7 +244,7 @@ Checkout our developer doc on our token standard https://aptos.dev/standards
 
 </details>
 
-<a name="0x3_token_TokenId"></a>
+<a id="0x3_token_TokenId"></a>
 
 ## Struct `TokenId`
 
@@ -264,7 +278,7 @@ global unique identifier of a token
 
 </details>
 
-<a name="0x3_token_TokenDataId"></a>
+<a id="0x3_token_TokenDataId"></a>
 
 ## Struct `TokenDataId`
 
@@ -304,7 +318,7 @@ globally unique identifier of tokendata
 
 </details>
 
-<a name="0x3_token_TokenData"></a>
+<a id="0x3_token_TokenData"></a>
 
 ## Struct `TokenData`
 
@@ -380,7 +394,7 @@ The shared TokenData by tokens with different property_version
 
 </details>
 
-<a name="0x3_token_Royalty"></a>
+<a id="0x3_token_Royalty"></a>
 
 ## Struct `Royalty`
 
@@ -421,7 +435,7 @@ The royalty of a token
 
 </details>
 
-<a name="0x3_token_TokenMutabilityConfig"></a>
+<a id="0x3_token_TokenMutabilityConfig"></a>
 
 ## Struct `TokenMutabilityConfig`
 
@@ -473,7 +487,7 @@ This config specifies which fields in the TokenData are mutable
 
 </details>
 
-<a name="0x3_token_TokenStore"></a>
+<a id="0x3_token_TokenStore"></a>
 
 ## Resource `TokenStore`
 
@@ -531,7 +545,7 @@ Represents token resources owned by token owner
 
 </details>
 
-<a name="0x3_token_CollectionMutabilityConfig"></a>
+<a id="0x3_token_CollectionMutabilityConfig"></a>
 
 ## Struct `CollectionMutabilityConfig`
 
@@ -571,7 +585,7 @@ This config specifies which fields in the Collection are mutable
 
 </details>
 
-<a name="0x3_token_Collections"></a>
+<a id="0x3_token_Collections"></a>
 
 ## Resource `Collections`
 
@@ -623,7 +637,7 @@ Represent collection and token metadata for a creator
 
 </details>
 
-<a name="0x3_token_CollectionData"></a>
+<a id="0x3_token_CollectionData"></a>
 
 ## Struct `CollectionData`
 
@@ -682,7 +696,7 @@ Represent the collection metadata
 
 </details>
 
-<a name="0x3_token_WithdrawCapability"></a>
+<a id="0x3_token_WithdrawCapability"></a>
 
 ## Struct `WithdrawCapability`
 
@@ -728,7 +742,7 @@ capability to withdraw without signer, this struct should be non-copyable
 
 </details>
 
-<a name="0x3_token_DepositEvent"></a>
+<a id="0x3_token_DepositEvent"></a>
 
 ## Struct `DepositEvent`
 
@@ -762,7 +776,84 @@ Set of data sent to the event stream during a receive
 
 </details>
 
-<a name="0x3_token_WithdrawEvent"></a>
+<a id="0x3_token_TokenDeposit"></a>
+
+## Struct `TokenDeposit`
+
+Set of data sent to the event stream during a receive
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+<b>struct</b> <a href="token.md#0x3_token_TokenDeposit">TokenDeposit</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code><a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_Deposit"></a>
+
+## Struct `Deposit`
+
+Set of data sent to the event stream during a receive
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+#[deprecated]
+<b>struct</b> <a href="token.md#0x3_token_Deposit">Deposit</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_WithdrawEvent"></a>
 
 ## Struct `WithdrawEvent`
 
@@ -796,7 +887,84 @@ Set of data sent to the event stream during a withdrawal
 
 </details>
 
-<a name="0x3_token_CreateTokenDataEvent"></a>
+<a id="0x3_token_Withdraw"></a>
+
+## Struct `Withdraw`
+
+Set of data sent to the event stream during a withdrawal
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+#[deprecated]
+<b>struct</b> <a href="token.md#0x3_token_Withdraw">Withdraw</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_TokenWithdraw"></a>
+
+## Struct `TokenWithdraw`
+
+Set of data sent to the event stream during a withdrawal
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+<b>struct</b> <a href="token.md#0x3_token_TokenWithdraw">TokenWithdraw</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code><a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_CreateTokenDataEvent"></a>
 
 ## Struct `CreateTokenDataEvent`
 
@@ -890,7 +1058,202 @@ token creation event id of token created
 
 </details>
 
-<a name="0x3_token_MintTokenEvent"></a>
+<a id="0x3_token_CreateTokenData"></a>
+
+## Struct `CreateTokenData`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+#[deprecated]
+<b>struct</b> <a href="token.md#0x3_token_CreateTokenData">CreateTokenData</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenDataId">token::TokenDataId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>description: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>maximum: u64</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>uri: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>royalty_payee_address: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>royalty_points_denominator: u64</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>royalty_points_numerator: u64</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>name: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>mutability_config: <a href="token.md#0x3_token_TokenMutabilityConfig">token::TokenMutabilityConfig</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>property_keys: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>property_values: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>property_types: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_TokenDataCreation"></a>
+
+## Struct `TokenDataCreation`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+<b>struct</b> <a href="token.md#0x3_token_TokenDataCreation">TokenDataCreation</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>creator: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenDataId">token::TokenDataId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>description: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>maximum: u64</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>uri: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>royalty_payee_address: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>royalty_points_denominator: u64</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>royalty_points_numerator: u64</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>name: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>mutability_config: <a href="token.md#0x3_token_TokenMutabilityConfig">token::TokenMutabilityConfig</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>property_keys: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>property_values: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>property_types: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_MintTokenEvent"></a>
 
 ## Struct `MintTokenEvent`
 
@@ -924,7 +1287,82 @@ mint token event. This event triggered when creator adds more supply to existing
 
 </details>
 
-<a name="0x3_token_BurnTokenEvent"></a>
+<a id="0x3_token_MintToken"></a>
+
+## Struct `MintToken`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+#[deprecated]
+<b>struct</b> <a href="token.md#0x3_token_MintToken">MintToken</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenDataId">token::TokenDataId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_Mint"></a>
+
+## Struct `Mint`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+<b>struct</b> <a href="token.md#0x3_token_Mint">Mint</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>creator: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenDataId">token::TokenDataId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_BurnTokenEvent"></a>
 
 ## Struct `BurnTokenEvent`
 
@@ -957,7 +1395,82 @@ mint token event. This event triggered when creator adds more supply to existing
 
 </details>
 
-<a name="0x3_token_MutateTokenPropertyMapEvent"></a>
+<a id="0x3_token_BurnToken"></a>
+
+## Struct `BurnToken`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+#[deprecated]
+<b>struct</b> <a href="token.md#0x3_token_BurnToken">BurnToken</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_Burn"></a>
+
+## Struct `Burn`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+<b>struct</b> <a href="token.md#0x3_token_Burn">Burn</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code><a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>amount: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_MutateTokenPropertyMapEvent"></a>
 
 ## Struct `MutateTokenPropertyMapEvent`
 
@@ -1008,7 +1521,118 @@ mint token event. This event triggered when creator adds more supply to existing
 
 </details>
 
-<a name="0x3_token_CreateCollectionEvent"></a>
+<a id="0x3_token_MutateTokenPropertyMap"></a>
+
+## Struct `MutateTokenPropertyMap`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+#[deprecated]
+<b>struct</b> <a href="token.md#0x3_token_MutateTokenPropertyMap">MutateTokenPropertyMap</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>old_id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>new_id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>keys: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>values: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>types: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_MutatePropertyMap"></a>
+
+## Struct `MutatePropertyMap`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+<b>struct</b> <a href="token.md#0x3_token_MutatePropertyMap">MutatePropertyMap</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code><a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>old_id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>new_id: <a href="token.md#0x3_token_TokenId">token::TokenId</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>keys: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>values: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;u8&gt;&gt;</code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>types: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/vector.md#0x1_vector">vector</a>&lt;<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a>&gt;</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="0x3_token_CreateCollectionEvent"></a>
 
 ## Struct `CreateCollectionEvent`
 
@@ -1060,12 +1684,64 @@ create collection event with creator address and collection name
 
 </details>
 
-<a name="@Constants_0"></a>
+<a id="0x3_token_CreateCollection"></a>
+
+## Struct `CreateCollection`
+
+
+
+<pre><code>#[<a href="../../aptos-framework/doc/event.md#0x1_event">event</a>]
+<b>struct</b> <a href="token.md#0x3_token_CreateCollection">CreateCollection</a> <b>has</b> drop, store
+</code></pre>
+
+
+
+<details>
+<summary>Fields</summary>
+
+
+<dl>
+<dt>
+<code>creator: <b>address</b></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>collection_name: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>uri: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>description: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_String">string::String</a></code>
+</dt>
+<dd>
+
+</dd>
+<dt>
+<code>maximum: u64</code>
+</dt>
+<dd>
+
+</dd>
+</dl>
+
+
+</details>
+
+<a id="@Constants_0"></a>
 
 ## Constants
 
 
-<a name="0x3_token_EINSUFFICIENT_BALANCE"></a>
+<a id="0x3_token_EINSUFFICIENT_BALANCE"></a>
 
 Insufficient token balance
 
@@ -1075,7 +1751,7 @@ Insufficient token balance
 
 
 
-<a name="0x3_token_EURI_TOO_LONG"></a>
+<a id="0x3_token_EURI_TOO_LONG"></a>
 
 The URI is too long
 
@@ -1085,7 +1761,7 @@ The URI is too long
 
 
 
-<a name="0x3_token_MAX_URI_LENGTH"></a>
+<a id="0x3_token_MAX_URI_LENGTH"></a>
 
 
 
@@ -1094,7 +1770,7 @@ The URI is too long
 
 
 
-<a name="0x3_token_BURNABLE_BY_CREATOR"></a>
+<a id="0x3_token_BURNABLE_BY_CREATOR"></a>
 
 
 
@@ -1103,7 +1779,7 @@ The URI is too long
 
 
 
-<a name="0x3_token_BURNABLE_BY_OWNER"></a>
+<a id="0x3_token_BURNABLE_BY_OWNER"></a>
 
 
 
@@ -1112,7 +1788,7 @@ The URI is too long
 
 
 
-<a name="0x3_token_COLLECTION_DESCRIPTION_MUTABLE_IND"></a>
+<a id="0x3_token_COLLECTION_DESCRIPTION_MUTABLE_IND"></a>
 
 
 
@@ -1121,7 +1797,7 @@ The URI is too long
 
 
 
-<a name="0x3_token_COLLECTION_MAX_MUTABLE_IND"></a>
+<a id="0x3_token_COLLECTION_MAX_MUTABLE_IND"></a>
 
 
 
@@ -1130,7 +1806,7 @@ The URI is too long
 
 
 
-<a name="0x3_token_COLLECTION_URI_MUTABLE_IND"></a>
+<a id="0x3_token_COLLECTION_URI_MUTABLE_IND"></a>
 
 
 
@@ -1139,7 +1815,7 @@ The URI is too long
 
 
 
-<a name="0x3_token_EALREADY_HAS_BALANCE"></a>
+<a id="0x3_token_EALREADY_HAS_BALANCE"></a>
 
 The token has balance and cannot be initialized
 
@@ -1149,7 +1825,7 @@ The token has balance and cannot be initialized
 
 
 
-<a name="0x3_token_ECANNOT_UPDATE_RESERVED_PROPERTY"></a>
+<a id="0x3_token_ECANNOT_UPDATE_RESERVED_PROPERTY"></a>
 
 Reserved fields for token contract
 Cannot be updated by user
@@ -1160,7 +1836,7 @@ Cannot be updated by user
 
 
 
-<a name="0x3_token_ECOLLECTIONS_NOT_PUBLISHED"></a>
+<a id="0x3_token_ECOLLECTIONS_NOT_PUBLISHED"></a>
 
 There isn't any collection under this account
 
@@ -1170,7 +1846,7 @@ There isn't any collection under this account
 
 
 
-<a name="0x3_token_ECOLLECTION_ALREADY_EXISTS"></a>
+<a id="0x3_token_ECOLLECTION_ALREADY_EXISTS"></a>
 
 The collection already exists
 
@@ -1180,7 +1856,7 @@ The collection already exists
 
 
 
-<a name="0x3_token_ECOLLECTION_NAME_TOO_LONG"></a>
+<a id="0x3_token_ECOLLECTION_NAME_TOO_LONG"></a>
 
 The collection name is too long
 
@@ -1190,7 +1866,7 @@ The collection name is too long
 
 
 
-<a name="0x3_token_ECOLLECTION_NOT_PUBLISHED"></a>
+<a id="0x3_token_ECOLLECTION_NOT_PUBLISHED"></a>
 
 Cannot find collection in creator's account
 
@@ -1200,7 +1876,7 @@ Cannot find collection in creator's account
 
 
 
-<a name="0x3_token_ECREATE_WOULD_EXCEED_COLLECTION_MAXIMUM"></a>
+<a id="0x3_token_ECREATE_WOULD_EXCEED_COLLECTION_MAXIMUM"></a>
 
 Exceeds the collection's maximal number of token_data
 
@@ -1210,7 +1886,7 @@ Exceeds the collection's maximal number of token_data
 
 
 
-<a name="0x3_token_ECREATOR_CANNOT_BURN_TOKEN"></a>
+<a id="0x3_token_ECREATOR_CANNOT_BURN_TOKEN"></a>
 
 Token is not burnable by creator
 
@@ -1220,7 +1896,7 @@ Token is not burnable by creator
 
 
 
-<a name="0x3_token_EFIELD_NOT_MUTABLE"></a>
+<a id="0x3_token_EFIELD_NOT_MUTABLE"></a>
 
 The field is not mutable
 
@@ -1230,7 +1906,7 @@ The field is not mutable
 
 
 
-<a name="0x3_token_EINSUFFICIENT_WITHDRAW_CAPABILITY_AMOUNT"></a>
+<a id="0x3_token_EINSUFFICIENT_WITHDRAW_CAPABILITY_AMOUNT"></a>
 
 Withdraw capability doesn't have sufficient amount
 
@@ -1240,7 +1916,7 @@ Withdraw capability doesn't have sufficient amount
 
 
 
-<a name="0x3_token_EINVALID_MAXIMUM"></a>
+<a id="0x3_token_EINVALID_MAXIMUM"></a>
 
 Collection or tokendata maximum must be larger than supply
 
@@ -1250,7 +1926,7 @@ Collection or tokendata maximum must be larger than supply
 
 
 
-<a name="0x3_token_EINVALID_ROYALTY_NUMERATOR_DENOMINATOR"></a>
+<a id="0x3_token_EINVALID_ROYALTY_NUMERATOR_DENOMINATOR"></a>
 
 Royalty invalid if the numerator is larger than the denominator
 
@@ -1260,7 +1936,7 @@ Royalty invalid if the numerator is larger than the denominator
 
 
 
-<a name="0x3_token_EINVALID_TOKEN_MERGE"></a>
+<a id="0x3_token_EINVALID_TOKEN_MERGE"></a>
 
 Cannot merge the two tokens with different token id
 
@@ -1270,7 +1946,7 @@ Cannot merge the two tokens with different token id
 
 
 
-<a name="0x3_token_EMINT_WOULD_EXCEED_TOKEN_MAXIMUM"></a>
+<a id="0x3_token_EMINT_WOULD_EXCEED_TOKEN_MAXIMUM"></a>
 
 Exceed the token data maximal allowed
 
@@ -1280,7 +1956,7 @@ Exceed the token data maximal allowed
 
 
 
-<a name="0x3_token_ENFT_NAME_TOO_LONG"></a>
+<a id="0x3_token_ENFT_NAME_TOO_LONG"></a>
 
 The NFT name is too long
 
@@ -1290,7 +1966,7 @@ The NFT name is too long
 
 
 
-<a name="0x3_token_ENFT_NOT_SPLITABLE"></a>
+<a id="0x3_token_ENFT_NOT_SPLITABLE"></a>
 
 Cannot split a token that only has 1 amount
 
@@ -1300,7 +1976,7 @@ Cannot split a token that only has 1 amount
 
 
 
-<a name="0x3_token_ENO_BURN_CAPABILITY"></a>
+<a id="0x3_token_ENO_BURN_CAPABILITY"></a>
 
 No burn capability
 
@@ -1310,7 +1986,7 @@ No burn capability
 
 
 
-<a name="0x3_token_ENO_BURN_TOKEN_WITH_ZERO_AMOUNT"></a>
+<a id="0x3_token_ENO_BURN_TOKEN_WITH_ZERO_AMOUNT"></a>
 
 Cannot burn 0 Token
 
@@ -1320,7 +1996,7 @@ Cannot burn 0 Token
 
 
 
-<a name="0x3_token_ENO_DEPOSIT_TOKEN_WITH_ZERO_AMOUNT"></a>
+<a id="0x3_token_ENO_DEPOSIT_TOKEN_WITH_ZERO_AMOUNT"></a>
 
 Cannot deposit a Token with 0 amount
 
@@ -1330,7 +2006,7 @@ Cannot deposit a Token with 0 amount
 
 
 
-<a name="0x3_token_ENO_MINT_CAPABILITY"></a>
+<a id="0x3_token_ENO_MINT_CAPABILITY"></a>
 
 No mint capability
 
@@ -1340,7 +2016,7 @@ No mint capability
 
 
 
-<a name="0x3_token_ENO_MUTATE_CAPABILITY"></a>
+<a id="0x3_token_ENO_MUTATE_CAPABILITY"></a>
 
 Not authorized to mutate
 
@@ -1350,7 +2026,7 @@ Not authorized to mutate
 
 
 
-<a name="0x3_token_ENO_TOKEN_IN_TOKEN_STORE"></a>
+<a id="0x3_token_ENO_TOKEN_IN_TOKEN_STORE"></a>
 
 Token not in the token store
 
@@ -1360,7 +2036,7 @@ Token not in the token store
 
 
 
-<a name="0x3_token_EOWNER_CANNOT_BURN_TOKEN"></a>
+<a id="0x3_token_EOWNER_CANNOT_BURN_TOKEN"></a>
 
 Token is not burnable by owner
 
@@ -1370,7 +2046,7 @@ Token is not burnable by owner
 
 
 
-<a name="0x3_token_EPROPERTY_RESERVED_BY_STANDARD"></a>
+<a id="0x3_token_EPROPERTY_RESERVED_BY_STANDARD"></a>
 
 The property is reserved by token standard
 
@@ -1380,7 +2056,7 @@ The property is reserved by token standard
 
 
 
-<a name="0x3_token_EROYALTY_PAYEE_ACCOUNT_DOES_NOT_EXIST"></a>
+<a id="0x3_token_EROYALTY_PAYEE_ACCOUNT_DOES_NOT_EXIST"></a>
 
 Royalty payee account does not exist
 
@@ -1390,7 +2066,7 @@ Royalty payee account does not exist
 
 
 
-<a name="0x3_token_ETOKEN_CANNOT_HAVE_ZERO_AMOUNT"></a>
+<a id="0x3_token_ETOKEN_CANNOT_HAVE_ZERO_AMOUNT"></a>
 
 TOKEN with 0 amount is not allowed
 
@@ -1400,7 +2076,7 @@ TOKEN with 0 amount is not allowed
 
 
 
-<a name="0x3_token_ETOKEN_DATA_ALREADY_EXISTS"></a>
+<a id="0x3_token_ETOKEN_DATA_ALREADY_EXISTS"></a>
 
 TokenData already exists
 
@@ -1410,7 +2086,7 @@ TokenData already exists
 
 
 
-<a name="0x3_token_ETOKEN_DATA_NOT_PUBLISHED"></a>
+<a id="0x3_token_ETOKEN_DATA_NOT_PUBLISHED"></a>
 
 TokenData not published
 
@@ -1420,7 +2096,7 @@ TokenData not published
 
 
 
-<a name="0x3_token_ETOKEN_PROPERTIES_COUNT_NOT_MATCH"></a>
+<a id="0x3_token_ETOKEN_PROPERTIES_COUNT_NOT_MATCH"></a>
 
 Token Properties count doesn't match
 
@@ -1430,7 +2106,7 @@ Token Properties count doesn't match
 
 
 
-<a name="0x3_token_ETOKEN_SPLIT_AMOUNT_LARGER_OR_EQUAL_TO_TOKEN_AMOUNT"></a>
+<a id="0x3_token_ETOKEN_SPLIT_AMOUNT_LARGER_OR_EQUAL_TO_TOKEN_AMOUNT"></a>
 
 Cannot split token to an amount larger than its amount
 
@@ -1440,7 +2116,7 @@ Cannot split token to an amount larger than its amount
 
 
 
-<a name="0x3_token_ETOKEN_STORE_NOT_PUBLISHED"></a>
+<a id="0x3_token_ETOKEN_STORE_NOT_PUBLISHED"></a>
 
 TokenStore doesn't exist
 
@@ -1450,7 +2126,7 @@ TokenStore doesn't exist
 
 
 
-<a name="0x3_token_EUSER_NOT_OPT_IN_DIRECT_TRANSFER"></a>
+<a id="0x3_token_EUSER_NOT_OPT_IN_DIRECT_TRANSFER"></a>
 
 User didn't opt-in direct transfer
 
@@ -1460,7 +2136,7 @@ User didn't opt-in direct transfer
 
 
 
-<a name="0x3_token_EWITHDRAW_PROOF_EXPIRES"></a>
+<a id="0x3_token_EWITHDRAW_PROOF_EXPIRES"></a>
 
 Withdraw proof expires
 
@@ -1470,7 +2146,7 @@ Withdraw proof expires
 
 
 
-<a name="0x3_token_EWITHDRAW_ZERO"></a>
+<a id="0x3_token_EWITHDRAW_ZERO"></a>
 
 Cannot withdraw 0 token
 
@@ -1480,7 +2156,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_MAX_COLLECTION_NAME_LENGTH"></a>
+<a id="0x3_token_MAX_COLLECTION_NAME_LENGTH"></a>
 
 
 
@@ -1489,7 +2165,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_MAX_NFT_NAME_LENGTH"></a>
+<a id="0x3_token_MAX_NFT_NAME_LENGTH"></a>
 
 
 
@@ -1498,7 +2174,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_TOKEN_DESCRIPTION_MUTABLE_IND"></a>
+<a id="0x3_token_TOKEN_DESCRIPTION_MUTABLE_IND"></a>
 
 
 
@@ -1507,7 +2183,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_TOKEN_MAX_MUTABLE_IND"></a>
+<a id="0x3_token_TOKEN_MAX_MUTABLE_IND"></a>
 
 
 
@@ -1516,7 +2192,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_TOKEN_PROPERTY_MUTABLE"></a>
+<a id="0x3_token_TOKEN_PROPERTY_MUTABLE"></a>
 
 
 
@@ -1525,7 +2201,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_TOKEN_PROPERTY_MUTABLE_IND"></a>
+<a id="0x3_token_TOKEN_PROPERTY_MUTABLE_IND"></a>
 
 
 
@@ -1534,7 +2210,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_TOKEN_PROPERTY_VALUE_MUTABLE_IND"></a>
+<a id="0x3_token_TOKEN_PROPERTY_VALUE_MUTABLE_IND"></a>
 
 
 
@@ -1543,7 +2219,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_TOKEN_ROYALTY_MUTABLE_IND"></a>
+<a id="0x3_token_TOKEN_ROYALTY_MUTABLE_IND"></a>
 
 
 
@@ -1552,7 +2228,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_TOKEN_URI_MUTABLE_IND"></a>
+<a id="0x3_token_TOKEN_URI_MUTABLE_IND"></a>
 
 
 
@@ -1561,7 +2237,7 @@ Cannot withdraw 0 token
 
 
 
-<a name="0x3_token_create_collection_script"></a>
+<a id="0x3_token_create_collection_script"></a>
 
 ## Function `create_collection_script`
 
@@ -1600,7 +2276,7 @@ create a empty token collection with parameters
 
 </details>
 
-<a name="0x3_token_create_token_script"></a>
+<a id="0x3_token_create_token_script"></a>
 
 ## Function `create_token_script`
 
@@ -1661,7 +2337,7 @@ create token with raw inputs
 
 </details>
 
-<a name="0x3_token_mint_script"></a>
+<a id="0x3_token_mint_script"></a>
 
 ## Function `mint_script`
 
@@ -1703,7 +2379,7 @@ Mint more token from an existing token_data. Mint only adds more token to proper
 
 </details>
 
-<a name="0x3_token_mutate_token_properties"></a>
+<a id="0x3_token_mutate_token_properties"></a>
 
 ## Function `mutate_token_properties`
 
@@ -1753,7 +2429,7 @@ if the token property_version is not 0, we will just update the propertyMap and 
 
 </details>
 
-<a name="0x3_token_direct_transfer_script"></a>
+<a id="0x3_token_direct_transfer_script"></a>
 
 ## Function `direct_transfer_script`
 
@@ -1786,7 +2462,7 @@ if the token property_version is not 0, we will just update the propertyMap and 
 
 </details>
 
-<a name="0x3_token_opt_in_direct_transfer"></a>
+<a id="0x3_token_opt_in_direct_transfer"></a>
 
 ## Function `opt_in_direct_transfer`
 
@@ -1814,7 +2490,7 @@ if the token property_version is not 0, we will just update the propertyMap and 
 
 </details>
 
-<a name="0x3_token_transfer_with_opt_in"></a>
+<a id="0x3_token_transfer_with_opt_in"></a>
 
 ## Function `transfer_with_opt_in`
 
@@ -1849,7 +2525,7 @@ The receiver <code><b>to</b></code> has to opt-in direct transfer first
 
 </details>
 
-<a name="0x3_token_burn_by_creator"></a>
+<a id="0x3_token_burn_by_creator"></a>
 
 ## Function `burn_by_creator`
 
@@ -1903,13 +2579,17 @@ The token is owned at address owner
     <b>let</b> burn_by_creator_flag = <a href="property_map.md#0x3_property_map_read_bool">property_map::read_bool</a>(&token_data.default_properties, &<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_utf8">string::utf8</a>(<a href="token.md#0x3_token_BURNABLE_BY_CREATOR">BURNABLE_BY_CREATOR</a>));
     <b>assert</b>!(burn_by_creator_flag, <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_permission_denied">error::permission_denied</a>(<a href="token.md#0x3_token_ECREATOR_CANNOT_BURN_TOKEN">ECREATOR_CANNOT_BURN_TOKEN</a>));
 
-    // Burn the tokens.
+    // <a href="token.md#0x3_token_Burn">Burn</a> the tokens.
     <b>let</b> <a href="token.md#0x3_token_Token">Token</a> { id: _, amount: burned_amount, token_properties: _ } = <a href="token.md#0x3_token_withdraw_with_event_internal">withdraw_with_event_internal</a>(owner, token_id, amount);
     <b>let</b> token_store = <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(owner);
-    <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_BurnTokenEvent">BurnTokenEvent</a>&gt;(
-        &<b>mut</b> token_store.burn_events,
-        <a href="token.md#0x3_token_BurnTokenEvent">BurnTokenEvent</a> { id: token_id, amount: burned_amount },
-    );
+    <b>if</b> (std::features::module_event_migration_enabled()) {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(<a href="token.md#0x3_token_Burn">Burn</a> { <a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: owner, id: token_id, amount: burned_amount });
+    } <b>else</b> {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_BurnTokenEvent">BurnTokenEvent</a>&gt;(
+            &<b>mut</b> token_store.burn_events,
+            <a href="token.md#0x3_token_BurnTokenEvent">BurnTokenEvent</a> { id: token_id, amount: burned_amount }
+        );
+    };
 
     <b>if</b> (token_data.maximum &gt; 0) {
         token_data.supply = token_data.supply - burned_amount;
@@ -1939,7 +2619,7 @@ The token is owned at address owner
 
 </details>
 
-<a name="0x3_token_burn"></a>
+<a id="0x3_token_burn"></a>
 
 ## Function `burn`
 
@@ -1989,13 +2669,17 @@ Burn a token by the token owner
     <b>let</b> burn_by_owner_flag = <a href="property_map.md#0x3_property_map_read_bool">property_map::read_bool</a>(&token_data.default_properties, &<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/string.md#0x1_string_utf8">string::utf8</a>(<a href="token.md#0x3_token_BURNABLE_BY_OWNER">BURNABLE_BY_OWNER</a>));
     <b>assert</b>!(burn_by_owner_flag, <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_permission_denied">error::permission_denied</a>(<a href="token.md#0x3_token_EOWNER_CANNOT_BURN_TOKEN">EOWNER_CANNOT_BURN_TOKEN</a>));
 
-    // Burn the tokens.
+    // <a href="token.md#0x3_token_Burn">Burn</a> the tokens.
     <b>let</b> <a href="token.md#0x3_token_Token">Token</a> { id: _, amount: burned_amount, token_properties: _ } = <a href="token.md#0x3_token_withdraw_token">withdraw_token</a>(owner, token_id, amount);
     <b>let</b> token_store = <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(<a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/signer.md#0x1_signer_address_of">signer::address_of</a>(owner));
-    <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_BurnTokenEvent">BurnTokenEvent</a>&gt;(
-        &<b>mut</b> token_store.burn_events,
-        <a href="token.md#0x3_token_BurnTokenEvent">BurnTokenEvent</a> { id: token_id, amount: burned_amount },
-    );
+    <b>if</b> (std::features::module_event_migration_enabled()) {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(<a href="token.md#0x3_token_Burn">Burn</a> { <a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/signer.md#0x1_signer_address_of">signer::address_of</a>(owner), id: token_id, amount: burned_amount });
+    } <b>else</b> {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_BurnTokenEvent">BurnTokenEvent</a>&gt;(
+            &<b>mut</b> token_store.burn_events,
+            <a href="token.md#0x3_token_BurnTokenEvent">BurnTokenEvent</a> { id: token_id, amount: burned_amount }
+        );
+    };
 
     // Decrease the supply correspondingly by the amount of tokens burned.
     <b>let</b> token_data = <a href="../../aptos-framework/../aptos-stdlib/doc/table.md#0x1_table_borrow_mut">table::borrow_mut</a>(
@@ -2035,7 +2719,7 @@ Burn a token by the token owner
 
 </details>
 
-<a name="0x3_token_mutate_collection_description"></a>
+<a id="0x3_token_mutate_collection_description"></a>
 
 ## Function `mutate_collection_description`
 
@@ -2064,7 +2748,7 @@ Burn a token by the token owner
 
 </details>
 
-<a name="0x3_token_mutate_collection_uri"></a>
+<a id="0x3_token_mutate_collection_uri"></a>
 
 ## Function `mutate_collection_uri`
 
@@ -2094,7 +2778,7 @@ Burn a token by the token owner
 
 </details>
 
-<a name="0x3_token_mutate_collection_maximum"></a>
+<a id="0x3_token_mutate_collection_maximum"></a>
 
 ## Function `mutate_collection_maximum`
 
@@ -2126,7 +2810,7 @@ Burn a token by the token owner
 
 </details>
 
-<a name="0x3_token_mutate_tokendata_maximum"></a>
+<a id="0x3_token_mutate_tokendata_maximum"></a>
 
 ## Function `mutate_tokendata_maximum`
 
@@ -2158,7 +2842,7 @@ Burn a token by the token owner
 
 </details>
 
-<a name="0x3_token_mutate_tokendata_uri"></a>
+<a id="0x3_token_mutate_tokendata_uri"></a>
 
 ## Function `mutate_tokendata_uri`
 
@@ -2193,7 +2877,7 @@ Burn a token by the token owner
 
 </details>
 
-<a name="0x3_token_mutate_tokendata_royalty"></a>
+<a id="0x3_token_mutate_tokendata_royalty"></a>
 
 ## Function `mutate_tokendata_royalty`
 
@@ -2234,7 +2918,7 @@ Burn a token by the token owner
 
 </details>
 
-<a name="0x3_token_mutate_tokendata_description"></a>
+<a id="0x3_token_mutate_tokendata_description"></a>
 
 ## Function `mutate_tokendata_description`
 
@@ -2264,7 +2948,7 @@ Burn a token by the token owner
 
 </details>
 
-<a name="0x3_token_mutate_tokendata_property"></a>
+<a id="0x3_token_mutate_tokendata_property"></a>
 
 ## Function `mutate_tokendata_property`
 
@@ -2326,7 +3010,7 @@ Allow creator to mutate the default properties in TokenData
 
 </details>
 
-<a name="0x3_token_mutate_one_token"></a>
+<a id="0x3_token_mutate_one_token"></a>
 
 ## Function `mutate_one_token`
 
@@ -2386,16 +3070,27 @@ Mutate the token_properties of one token.
         };
         <a href="token.md#0x3_token_direct_deposit">direct_deposit</a>(token_owner, new_token);
         <a href="token.md#0x3_token_update_token_property_internal">update_token_property_internal</a>(token_owner, new_token_id, keys, values, types);
-        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_MutateTokenPropertyMapEvent">MutateTokenPropertyMapEvent</a>&gt;(
-            &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(token_owner).mutate_token_property_events,
-            <a href="token.md#0x3_token_MutateTokenPropertyMapEvent">MutateTokenPropertyMapEvent</a> {
+        <b>if</b> (std::features::module_event_migration_enabled()) {
+            <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(<a href="token.md#0x3_token_MutatePropertyMap">MutatePropertyMap</a> {
+                <a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: token_owner,
                 old_id: token_id,
                 new_id: new_token_id,
                 keys,
                 values,
                 types
-            },
-        );
+            });
+        } <b>else</b> {
+            <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_MutateTokenPropertyMapEvent">MutateTokenPropertyMapEvent</a>&gt;(
+                &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(token_owner).mutate_token_property_events,
+                <a href="token.md#0x3_token_MutateTokenPropertyMapEvent">MutateTokenPropertyMapEvent</a> {
+                    old_id: token_id,
+                    new_id: new_token_id,
+                    keys,
+                    values,
+                    types
+                },
+            );
+        };
 
         token_data.largest_property_version = cur_property_version;
         // burn the orignial property_version 0 <a href="token.md#0x3_token">token</a> after mutation
@@ -2404,16 +3099,27 @@ Mutate the token_properties of one token.
     } <b>else</b> {
         // only 1 <b>copy</b> for the <a href="token.md#0x3_token">token</a> <b>with</b> property verion bigger than 0
         <a href="token.md#0x3_token_update_token_property_internal">update_token_property_internal</a>(token_owner, token_id, keys, values, types);
-        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_MutateTokenPropertyMapEvent">MutateTokenPropertyMapEvent</a>&gt;(
-            &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(token_owner).mutate_token_property_events,
-            <a href="token.md#0x3_token_MutateTokenPropertyMapEvent">MutateTokenPropertyMapEvent</a> {
+        <b>if</b> (std::features::module_event_migration_enabled()) {
+            <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(<a href="token.md#0x3_token_MutatePropertyMap">MutatePropertyMap</a> {
+                <a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: token_owner,
                 old_id: token_id,
                 new_id: token_id,
                 keys,
                 values,
                 types
-            },
-        );
+            });
+        } <b>else</b> {
+            <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_MutateTokenPropertyMapEvent">MutateTokenPropertyMapEvent</a>&gt;(
+                &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(token_owner).mutate_token_property_events,
+                <a href="token.md#0x3_token_MutateTokenPropertyMapEvent">MutateTokenPropertyMapEvent</a> {
+                    old_id: token_id,
+                    new_id: token_id,
+                    keys,
+                    values,
+                    types
+                },
+            );
+        };
         token_id
     }
 }
@@ -2423,7 +3129,7 @@ Mutate the token_properties of one token.
 
 </details>
 
-<a name="0x3_token_create_royalty"></a>
+<a id="0x3_token_create_royalty"></a>
 
 ## Function `create_royalty`
 
@@ -2453,7 +3159,7 @@ Mutate the token_properties of one token.
 
 </details>
 
-<a name="0x3_token_deposit_token"></a>
+<a id="0x3_token_deposit_token"></a>
 
 ## Function `deposit_token`
 
@@ -2480,7 +3186,7 @@ Deposit the token balance into the owner's account and emit an event.
 
 </details>
 
-<a name="0x3_token_direct_deposit_with_opt_in"></a>
+<a id="0x3_token_direct_deposit_with_opt_in"></a>
 
 ## Function `direct_deposit_with_opt_in`
 
@@ -2507,7 +3213,7 @@ direct deposit if user opt in direct transfer
 
 </details>
 
-<a name="0x3_token_direct_transfer"></a>
+<a id="0x3_token_direct_transfer"></a>
 
 ## Function `direct_transfer`
 
@@ -2537,7 +3243,7 @@ direct deposit if user opt in direct transfer
 
 </details>
 
-<a name="0x3_token_initialize_token_store"></a>
+<a id="0x3_token_initialize_token_store"></a>
 
 ## Function `initialize_token_store`
 
@@ -2573,7 +3279,7 @@ direct deposit if user opt in direct transfer
 
 </details>
 
-<a name="0x3_token_merge"></a>
+<a id="0x3_token_merge"></a>
 
 ## Function `merge`
 
@@ -2599,7 +3305,7 @@ direct deposit if user opt in direct transfer
 
 </details>
 
-<a name="0x3_token_split"></a>
+<a id="0x3_token_split"></a>
 
 ## Function `split`
 
@@ -2631,7 +3337,7 @@ direct deposit if user opt in direct transfer
 
 </details>
 
-<a name="0x3_token_token_id"></a>
+<a id="0x3_token_token_id"></a>
 
 ## Function `token_id`
 
@@ -2655,7 +3361,7 @@ direct deposit if user opt in direct transfer
 
 </details>
 
-<a name="0x3_token_transfer"></a>
+<a id="0x3_token_transfer"></a>
 
 ## Function `transfer`
 
@@ -2688,7 +3394,7 @@ Transfers <code>amount</code> of tokens from <code>from</code> to <code><b>to</b
 
 </details>
 
-<a name="0x3_token_create_withdraw_capability"></a>
+<a id="0x3_token_create_withdraw_capability"></a>
 
 ## Function `create_withdraw_capability`
 
@@ -2723,7 +3429,7 @@ Token owner can create this one-time withdraw capability with an expiration time
 
 </details>
 
-<a name="0x3_token_withdraw_with_capability"></a>
+<a id="0x3_token_withdraw_with_capability"></a>
 
 ## Function `withdraw_with_capability`
 
@@ -2757,7 +3463,7 @@ Withdraw the token with a capability
 
 </details>
 
-<a name="0x3_token_partial_withdraw_with_capability"></a>
+<a id="0x3_token_partial_withdraw_with_capability"></a>
 
 ## Function `partial_withdraw_with_capability`
 
@@ -2811,7 +3517,7 @@ Withdraw the token with a capability.
 
 </details>
 
-<a name="0x3_token_withdraw_token"></a>
+<a id="0x3_token_withdraw_token"></a>
 
 ## Function `withdraw_token`
 
@@ -2840,7 +3546,7 @@ Withdraw the token with a capability.
 
 </details>
 
-<a name="0x3_token_create_collection"></a>
+<a id="0x3_token_create_collection"></a>
 
 ## Function `create_collection`
 
@@ -2899,16 +3605,28 @@ Create a new collection to hold tokens
 
     <a href="../../aptos-framework/../aptos-stdlib/doc/table.md#0x1_table_add">table::add</a>(collection_data, name, collection);
     <b>let</b> collection_handle = <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_Collections">Collections</a>&gt;(account_addr);
-    <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_CreateCollectionEvent">CreateCollectionEvent</a>&gt;(
-        &<b>mut</b> collection_handle.create_collection_events,
-        <a href="token.md#0x3_token_CreateCollectionEvent">CreateCollectionEvent</a> {
-            creator: account_addr,
-            collection_name: name,
-            uri,
-            description,
-            maximum,
-        }
-    );
+    <b>if</b> (std::features::module_event_migration_enabled()) {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(
+            <a href="token.md#0x3_token_CreateCollection">CreateCollection</a> {
+                creator: account_addr,
+                collection_name: name,
+                uri,
+                description,
+                maximum,
+            }
+        );
+    } <b>else</b> {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_CreateCollectionEvent">CreateCollectionEvent</a>&gt;(
+            &<b>mut</b> collection_handle.create_collection_events,
+            <a href="token.md#0x3_token_CreateCollectionEvent">CreateCollectionEvent</a> {
+                creator: account_addr,
+                collection_name: name,
+                uri,
+                description,
+                maximum,
+            }
+        );
+    };
 }
 </code></pre>
 
@@ -2916,7 +3634,7 @@ Create a new collection to hold tokens
 
 </details>
 
-<a name="0x3_token_check_collection_exists"></a>
+<a id="0x3_token_check_collection_exists"></a>
 
 ## Function `check_collection_exists`
 
@@ -2946,7 +3664,7 @@ Create a new collection to hold tokens
 
 </details>
 
-<a name="0x3_token_check_tokendata_exists"></a>
+<a id="0x3_token_check_tokendata_exists"></a>
 
 ## Function `check_tokendata_exists`
 
@@ -2977,7 +3695,7 @@ Create a new collection to hold tokens
 
 </details>
 
-<a name="0x3_token_create_tokendata"></a>
+<a id="0x3_token_create_tokendata"></a>
 
 ## Function `create_tokendata`
 
@@ -3055,24 +3773,44 @@ Create a new collection to hold tokens
     };
 
     <a href="../../aptos-framework/../aptos-stdlib/doc/table.md#0x1_table_add">table::add</a>(&<b>mut</b> collections.token_data, token_data_id, token_data);
+    <b>if</b> (std::features::module_event_migration_enabled()) {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(
+            <a href="token.md#0x3_token_TokenDataCreation">TokenDataCreation</a> {
+                creator: account_addr,
+                id: token_data_id,
+                description,
+                maximum,
+                uri,
+                royalty_payee_address,
+                royalty_points_denominator,
+                royalty_points_numerator,
+                name,
+                mutability_config: token_mutate_config,
+                property_keys,
+                property_values,
+                property_types,
+            }
+        );
+    } <b>else</b> {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_CreateTokenDataEvent">CreateTokenDataEvent</a>&gt;(
+            &<b>mut</b> collections.create_token_data_events,
+            <a href="token.md#0x3_token_CreateTokenDataEvent">CreateTokenDataEvent</a> {
+                id: token_data_id,
+                description,
+                maximum,
+                uri,
+                royalty_payee_address,
+                royalty_points_denominator,
+                royalty_points_numerator,
+                name,
+                mutability_config: token_mutate_config,
+                property_keys,
+                property_values,
+                property_types,
+            },
+        );
+    };
 
-    <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_CreateTokenDataEvent">CreateTokenDataEvent</a>&gt;(
-        &<b>mut</b> collections.create_token_data_events,
-        <a href="token.md#0x3_token_CreateTokenDataEvent">CreateTokenDataEvent</a> {
-            id: token_data_id,
-            description,
-            maximum,
-            uri,
-            royalty_payee_address,
-            royalty_points_denominator,
-            royalty_points_numerator,
-            name,
-            mutability_config: token_mutate_config,
-            property_keys,
-            property_values,
-            property_types,
-        },
-    );
     token_data_id
 }
 </code></pre>
@@ -3081,7 +3819,7 @@ Create a new collection to hold tokens
 
 </details>
 
-<a name="0x3_token_get_collection_supply"></a>
+<a id="0x3_token_get_collection_supply"></a>
 
 ## Function `get_collection_supply`
 
@@ -3113,7 +3851,7 @@ return the number of distinct token_data_id created under this collection
 
 </details>
 
-<a name="0x3_token_get_collection_description"></a>
+<a id="0x3_token_get_collection_description"></a>
 
 ## Function `get_collection_description`
 
@@ -3139,7 +3877,7 @@ return the number of distinct token_data_id created under this collection
 
 </details>
 
-<a name="0x3_token_get_collection_uri"></a>
+<a id="0x3_token_get_collection_uri"></a>
 
 ## Function `get_collection_uri`
 
@@ -3165,7 +3903,7 @@ return the number of distinct token_data_id created under this collection
 
 </details>
 
-<a name="0x3_token_get_collection_maximum"></a>
+<a id="0x3_token_get_collection_maximum"></a>
 
 ## Function `get_collection_maximum`
 
@@ -3191,7 +3929,7 @@ return the number of distinct token_data_id created under this collection
 
 </details>
 
-<a name="0x3_token_get_token_supply"></a>
+<a id="0x3_token_get_token_supply"></a>
 
 ## Function `get_token_supply`
 
@@ -3225,7 +3963,7 @@ return the number of distinct token_id created under this TokenData
 
 </details>
 
-<a name="0x3_token_get_tokendata_largest_property_version"></a>
+<a id="0x3_token_get_tokendata_largest_property_version"></a>
 
 ## Function `get_tokendata_largest_property_version`
 
@@ -3253,7 +3991,7 @@ return the largest_property_version of this TokenData
 
 </details>
 
-<a name="0x3_token_get_token_id"></a>
+<a id="0x3_token_get_token_id"></a>
 
 ## Function `get_token_id`
 
@@ -3278,7 +4016,7 @@ return the TokenId for a given Token
 
 </details>
 
-<a name="0x3_token_get_direct_transfer"></a>
+<a id="0x3_token_get_direct_transfer"></a>
 
 ## Function `get_direct_transfer`
 
@@ -3306,7 +4044,7 @@ return the TokenId for a given Token
 
 </details>
 
-<a name="0x3_token_create_token_mutability_config"></a>
+<a id="0x3_token_create_token_mutability_config"></a>
 
 ## Function `create_token_mutability_config`
 
@@ -3336,7 +4074,7 @@ return the TokenId for a given Token
 
 </details>
 
-<a name="0x3_token_create_collection_mutability_config"></a>
+<a id="0x3_token_create_collection_mutability_config"></a>
 
 ## Function `create_collection_mutability_config`
 
@@ -3364,7 +4102,7 @@ return the TokenId for a given Token
 
 </details>
 
-<a name="0x3_token_mint_token"></a>
+<a id="0x3_token_mint_token"></a>
 
 ## Function `mint_token`
 
@@ -3397,13 +4135,17 @@ return the TokenId for a given Token
 
     // we add more tokens <b>with</b> property_version 0
     <b>let</b> token_id = <a href="token.md#0x3_token_create_token_id">create_token_id</a>(token_data_id, 0);
-    <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_MintTokenEvent">MintTokenEvent</a>&gt;(
-        &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_Collections">Collections</a>&gt;(creator_addr).mint_token_events,
-        <a href="token.md#0x3_token_MintTokenEvent">MintTokenEvent</a> {
-            id: token_data_id,
-            amount,
-        }
-    );
+    <b>if</b> (std::features::module_event_migration_enabled()) {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(<a href="token.md#0x3_token_Mint">Mint</a> { creator: creator_addr, id: token_data_id, amount })
+    } <b>else</b> {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_MintTokenEvent">MintTokenEvent</a>&gt;(
+            &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_Collections">Collections</a>&gt;(creator_addr).mint_token_events,
+            <a href="token.md#0x3_token_MintTokenEvent">MintTokenEvent</a> {
+                id: token_data_id,
+                amount,
+            }
+        );
+    };
 
     <a href="token.md#0x3_token_deposit_token">deposit_token</a>(<a href="../../aptos-framework/doc/account.md#0x1_account">account</a>,
         <a href="token.md#0x3_token_Token">Token</a> {
@@ -3421,7 +4163,7 @@ return the TokenId for a given Token
 
 </details>
 
-<a name="0x3_token_mint_token_to"></a>
+<a id="0x3_token_mint_token_to"></a>
 
 ## Function `mint_token_to`
 
@@ -3461,13 +4203,17 @@ create tokens and directly deposite to receiver's address. The receiver should o
     // we add more tokens <b>with</b> property_version 0
     <b>let</b> token_id = <a href="token.md#0x3_token_create_token_id">create_token_id</a>(token_data_id, 0);
 
-    <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_MintTokenEvent">MintTokenEvent</a>&gt;(
-        &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_Collections">Collections</a>&gt;(creator_addr).mint_token_events,
-        <a href="token.md#0x3_token_MintTokenEvent">MintTokenEvent</a> {
-            id: token_data_id,
-            amount,
-        }
-    );
+    <b>if</b> (std::features::module_event_migration_enabled()) {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(<a href="token.md#0x3_token_Mint">Mint</a> { creator: creator_addr, id: token_data_id, amount })
+    } <b>else</b> {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_MintTokenEvent">MintTokenEvent</a>&gt;(
+            &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_Collections">Collections</a>&gt;(creator_addr).mint_token_events,
+            <a href="token.md#0x3_token_MintTokenEvent">MintTokenEvent</a> {
+                id: token_data_id,
+                amount,
+            }
+        );
+    };
 
     <a href="token.md#0x3_token_direct_deposit">direct_deposit</a>(receiver,
         <a href="token.md#0x3_token_Token">Token</a> {
@@ -3483,7 +4229,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_create_token_id"></a>
+<a id="0x3_token_create_token_id"></a>
 
 ## Function `create_token_id`
 
@@ -3510,7 +4256,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_create_token_data_id"></a>
+<a id="0x3_token_create_token_data_id"></a>
 
 ## Function `create_token_data_id`
 
@@ -3540,7 +4286,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_create_token_id_raw"></a>
+<a id="0x3_token_create_token_id_raw"></a>
 
 ## Function `create_token_id_raw`
 
@@ -3572,7 +4318,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_balance_of"></a>
+<a id="0x3_token_balance_of"></a>
 
 ## Function `balance_of`
 
@@ -3604,7 +4350,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_has_token_store"></a>
+<a id="0x3_token_has_token_store"></a>
 
 ## Function `has_token_store`
 
@@ -3628,7 +4374,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_get_royalty"></a>
+<a id="0x3_token_get_royalty"></a>
 
 ## Function `get_royalty`
 
@@ -3653,7 +4399,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_get_royalty_numerator"></a>
+<a id="0x3_token_get_royalty_numerator"></a>
 
 ## Function `get_royalty_numerator`
 
@@ -3677,7 +4423,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_get_royalty_denominator"></a>
+<a id="0x3_token_get_royalty_denominator"></a>
 
 ## Function `get_royalty_denominator`
 
@@ -3701,7 +4447,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_get_royalty_payee"></a>
+<a id="0x3_token_get_royalty_payee"></a>
 
 ## Function `get_royalty_payee`
 
@@ -3725,7 +4471,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_get_token_amount"></a>
+<a id="0x3_token_get_token_amount"></a>
 
 ## Function `get_token_amount`
 
@@ -3749,7 +4495,7 @@ create tokens and directly deposite to receiver's address. The receiver should o
 
 </details>
 
-<a name="0x3_token_get_token_id_fields"></a>
+<a id="0x3_token_get_token_id_fields"></a>
 
 ## Function `get_token_id_fields`
 
@@ -3779,7 +4525,7 @@ return the creator address, collection name, token name and property_version
 
 </details>
 
-<a name="0x3_token_get_token_data_id_fields"></a>
+<a id="0x3_token_get_token_data_id_fields"></a>
 
 ## Function `get_token_data_id_fields`
 
@@ -3807,7 +4553,7 @@ return the creator address, collection name, token name and property_version
 
 </details>
 
-<a name="0x3_token_get_property_map"></a>
+<a id="0x3_token_get_property_map"></a>
 
 ## Function `get_property_map`
 
@@ -3845,7 +4591,7 @@ if property_version > 0, return the property value stored at owner's token store
 
 </details>
 
-<a name="0x3_token_get_tokendata_maximum"></a>
+<a id="0x3_token_get_tokendata_maximum"></a>
 
 ## Function `get_tokendata_maximum`
 
@@ -3875,7 +4621,7 @@ if property_version > 0, return the property value stored at owner's token store
 
 </details>
 
-<a name="0x3_token_get_tokendata_uri"></a>
+<a id="0x3_token_get_tokendata_uri"></a>
 
 ## Function `get_tokendata_uri`
 
@@ -3904,7 +4650,7 @@ if property_version > 0, return the property value stored at owner's token store
 
 </details>
 
-<a name="0x3_token_get_tokendata_description"></a>
+<a id="0x3_token_get_tokendata_description"></a>
 
 ## Function `get_tokendata_description`
 
@@ -3934,7 +4680,7 @@ if property_version > 0, return the property value stored at owner's token store
 
 </details>
 
-<a name="0x3_token_get_tokendata_royalty"></a>
+<a id="0x3_token_get_tokendata_royalty"></a>
 
 ## Function `get_tokendata_royalty`
 
@@ -3964,7 +4710,7 @@ if property_version > 0, return the property value stored at owner's token store
 
 </details>
 
-<a name="0x3_token_get_tokendata_id"></a>
+<a id="0x3_token_get_tokendata_id"></a>
 
 ## Function `get_tokendata_id`
 
@@ -3989,7 +4735,7 @@ return the token_data_id from the token_id
 
 </details>
 
-<a name="0x3_token_get_tokendata_mutability_config"></a>
+<a id="0x3_token_get_tokendata_mutability_config"></a>
 
 ## Function `get_tokendata_mutability_config`
 
@@ -4018,7 +4764,7 @@ return the mutation setting of the token
 
 </details>
 
-<a name="0x3_token_get_token_mutability_maximum"></a>
+<a id="0x3_token_get_token_mutability_maximum"></a>
 
 ## Function `get_token_mutability_maximum`
 
@@ -4043,7 +4789,7 @@ return if the token's maximum is mutable
 
 </details>
 
-<a name="0x3_token_get_token_mutability_royalty"></a>
+<a id="0x3_token_get_token_mutability_royalty"></a>
 
 ## Function `get_token_mutability_royalty`
 
@@ -4068,7 +4814,7 @@ return if the token royalty is mutable with a token mutability config
 
 </details>
 
-<a name="0x3_token_get_token_mutability_uri"></a>
+<a id="0x3_token_get_token_mutability_uri"></a>
 
 ## Function `get_token_mutability_uri`
 
@@ -4093,7 +4839,7 @@ return if the token uri is mutable with a token mutability config
 
 </details>
 
-<a name="0x3_token_get_token_mutability_description"></a>
+<a id="0x3_token_get_token_mutability_description"></a>
 
 ## Function `get_token_mutability_description`
 
@@ -4118,7 +4864,7 @@ return if the token description is mutable with a token mutability config
 
 </details>
 
-<a name="0x3_token_get_token_mutability_default_properties"></a>
+<a id="0x3_token_get_token_mutability_default_properties"></a>
 
 ## Function `get_token_mutability_default_properties`
 
@@ -4143,7 +4889,7 @@ return if the tokendata's default properties is mutable with a token mutability 
 
 </details>
 
-<a name="0x3_token_get_collection_mutability_config"></a>
+<a id="0x3_token_get_collection_mutability_config"></a>
 
 ## Function `get_collection_mutability_config`
 
@@ -4175,7 +4921,7 @@ return the collection mutation setting
 
 </details>
 
-<a name="0x3_token_get_collection_mutability_description"></a>
+<a id="0x3_token_get_collection_mutability_description"></a>
 
 ## Function `get_collection_mutability_description`
 
@@ -4200,7 +4946,7 @@ return if the collection description is mutable with a collection mutability con
 
 </details>
 
-<a name="0x3_token_get_collection_mutability_uri"></a>
+<a id="0x3_token_get_collection_mutability_uri"></a>
 
 ## Function `get_collection_mutability_uri`
 
@@ -4225,7 +4971,7 @@ return if the collection uri is mutable with a collection mutability config
 
 </details>
 
-<a name="0x3_token_get_collection_mutability_maximum"></a>
+<a id="0x3_token_get_collection_mutability_maximum"></a>
 
 ## Function `get_collection_mutability_maximum`
 
@@ -4250,7 +4996,7 @@ return if the collection maximum is mutable with collection mutability config
 
 </details>
 
-<a name="0x3_token_destroy_token_data"></a>
+<a id="0x3_token_destroy_token_data"></a>
 
 ## Function `destroy_token_data`
 
@@ -4284,7 +5030,7 @@ return if the collection maximum is mutable with collection mutability config
 
 </details>
 
-<a name="0x3_token_destroy_collection_data"></a>
+<a id="0x3_token_destroy_collection_data"></a>
 
 ## Function `destroy_collection_data`
 
@@ -4315,7 +5061,7 @@ return if the collection maximum is mutable with collection mutability config
 
 </details>
 
-<a name="0x3_token_withdraw_with_event_internal"></a>
+<a id="0x3_token_withdraw_with_event_internal"></a>
 
 ## Function `withdraw_with_event_internal`
 
@@ -4346,10 +5092,15 @@ return if the collection maximum is mutable with collection mutability config
     );
 
     <b>let</b> token_store = <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(account_addr);
-    <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_WithdrawEvent">WithdrawEvent</a>&gt;(
-        &<b>mut</b> token_store.withdraw_events,
-        <a href="token.md#0x3_token_WithdrawEvent">WithdrawEvent</a> { id, amount },
-    );
+    <b>if</b> (std::features::module_event_migration_enabled()) {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(<a href="token.md#0x3_token_TokenWithdraw">TokenWithdraw</a> { <a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: account_addr, id, amount })
+    } <b>else</b> {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_WithdrawEvent">WithdrawEvent</a>&gt;(
+            &<b>mut</b> token_store.withdraw_events,
+            <a href="token.md#0x3_token_WithdrawEvent">WithdrawEvent</a> { id, amount }
+        );
+    };
+
     <b>let</b> tokens = &<b>mut</b> <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(account_addr).tokens;
     <b>assert</b>!(
         <a href="../../aptos-framework/../aptos-stdlib/doc/table.md#0x1_table_contains">table::contains</a>(tokens, id),
@@ -4370,7 +5121,7 @@ return if the collection maximum is mutable with collection mutability config
 
 </details>
 
-<a name="0x3_token_update_token_property_internal"></a>
+<a id="0x3_token_update_token_property_internal"></a>
 
 ## Function `update_token_property_internal`
 
@@ -4405,7 +5156,7 @@ return if the collection maximum is mutable with collection mutability config
 
 </details>
 
-<a name="0x3_token_direct_deposit"></a>
+<a id="0x3_token_direct_deposit"></a>
 
 ## Function `direct_deposit`
 
@@ -4425,10 +5176,14 @@ Deposit the token balance into the recipients account and emit an event.
     <b>assert</b>!(<a href="token.md#0x3_token">token</a>.amount &gt; 0, <a href="../../aptos-framework/../aptos-stdlib/../move-stdlib/doc/error.md#0x1_error_invalid_argument">error::invalid_argument</a>(<a href="token.md#0x3_token_ETOKEN_CANNOT_HAVE_ZERO_AMOUNT">ETOKEN_CANNOT_HAVE_ZERO_AMOUNT</a>));
     <b>let</b> token_store = <b>borrow_global_mut</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(account_addr);
 
-    <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_DepositEvent">DepositEvent</a>&gt;(
-        &<b>mut</b> token_store.deposit_events,
-        <a href="token.md#0x3_token_DepositEvent">DepositEvent</a> { id: <a href="token.md#0x3_token">token</a>.id, amount: <a href="token.md#0x3_token">token</a>.amount },
-    );
+    <b>if</b> (std::features::module_event_migration_enabled()) {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit">event::emit</a>(<a href="token.md#0x3_token_TokenDeposit">TokenDeposit</a> { <a href="../../aptos-framework/doc/account.md#0x1_account">account</a>: account_addr, id: <a href="token.md#0x3_token">token</a>.id, amount: <a href="token.md#0x3_token">token</a>.amount });
+    } <b>else</b> {
+        <a href="../../aptos-framework/doc/event.md#0x1_event_emit_event">event::emit_event</a>&lt;<a href="token.md#0x3_token_DepositEvent">DepositEvent</a>&gt;(
+            &<b>mut</b> token_store.deposit_events,
+            <a href="token.md#0x3_token_DepositEvent">DepositEvent</a> { id: <a href="token.md#0x3_token">token</a>.id, amount: <a href="token.md#0x3_token">token</a>.amount },
+        );
+    };
 
     <b>assert</b>!(
         <b>exists</b>&lt;<a href="token.md#0x3_token_TokenStore">TokenStore</a>&gt;(account_addr),
@@ -4448,7 +5203,7 @@ Deposit the token balance into the recipients account and emit an event.
 
 </details>
 
-<a name="0x3_token_assert_collection_exists"></a>
+<a id="0x3_token_assert_collection_exists"></a>
 
 ## Function `assert_collection_exists`
 
@@ -4474,7 +5229,7 @@ Deposit the token balance into the recipients account and emit an event.
 
 </details>
 
-<a name="0x3_token_assert_tokendata_exists"></a>
+<a id="0x3_token_assert_tokendata_exists"></a>
 
 ## Function `assert_tokendata_exists`
 
@@ -4502,7 +5257,7 @@ Deposit the token balance into the recipients account and emit an event.
 
 </details>
 
-<a name="0x3_token_assert_non_standard_reserved_property"></a>
+<a id="0x3_token_assert_non_standard_reserved_property"></a>
 
 ## Function `assert_non_standard_reserved_property`
 
@@ -4533,7 +5288,7 @@ Deposit the token balance into the recipients account and emit an event.
 
 </details>
 
-<a name="0x3_token_initialize_token_script"></a>
+<a id="0x3_token_initialize_token_script"></a>
 
 ## Function `initialize_token_script`
 
@@ -4557,7 +5312,7 @@ Deposit the token balance into the recipients account and emit an event.
 
 </details>
 
-<a name="0x3_token_initialize_token"></a>
+<a id="0x3_token_initialize_token"></a>
 
 ## Function `initialize_token`
 
@@ -4581,7 +5336,7 @@ Deposit the token balance into the recipients account and emit an event.
 
 </details>
 
-<a name="@Specification_1"></a>
+<a id="@Specification_1"></a>
 
 ## Specification
 
@@ -4593,7 +5348,7 @@ Deposit the token balance into the recipients account and emit an event.
 
 
 
-<a name="@Specification_1_create_collection_script"></a>
+<a id="@Specification_1_create_collection_script"></a>
 
 ### Function `create_collection_script`
 
@@ -4612,7 +5367,7 @@ The length of the uri is up to MAX_URI_LENGTH;
 
 
 
-<a name="@Specification_1_create_token_script"></a>
+<a id="@Specification_1_create_token_script"></a>
 
 ### Function `create_token_script`
 
@@ -4643,7 +5398,7 @@ The sum of supply and mint Token is less than maximum.
 
 
 
-<a name="0x3_token_spec_create_tokendata"></a>
+<a id="0x3_token_spec_create_tokendata"></a>
 
 
 <pre><code><b>fun</b> <a href="token.md#0x3_token_spec_create_tokendata">spec_create_tokendata</a>(
@@ -4656,7 +5411,7 @@ The sum of supply and mint Token is less than maximum.
 
 
 
-<a name="@Specification_1_mint_script"></a>
+<a id="@Specification_1_mint_script"></a>
 
 ### Function `mint_script`
 
@@ -4691,7 +5446,7 @@ token_data_id: token_data_id
 
 
 
-<a name="@Specification_1_mutate_token_properties"></a>
+<a id="@Specification_1_mutate_token_properties"></a>
 
 ### Function `mutate_token_properties`
 
@@ -4715,7 +5470,7 @@ The signer is creator.
 
 
 
-<a name="@Specification_1_direct_transfer_script"></a>
+<a id="@Specification_1_direct_transfer_script"></a>
 
 ### Function `direct_transfer_script`
 
@@ -4736,7 +5491,7 @@ The signer is creator.
 
 
 
-<a name="@Specification_1_opt_in_direct_transfer"></a>
+<a id="@Specification_1_opt_in_direct_transfer"></a>
 
 ### Function `opt_in_direct_transfer`
 
@@ -4760,7 +5515,7 @@ The signer is creator.
 
 
 
-<a name="@Specification_1_transfer_with_opt_in"></a>
+<a id="@Specification_1_transfer_with_opt_in"></a>
 
 ### Function `transfer_with_opt_in`
 
@@ -4781,7 +5536,7 @@ The signer is creator.
 
 
 
-<a name="@Specification_1_burn_by_creator"></a>
+<a id="@Specification_1_burn_by_creator"></a>
 
 ### Function `burn_by_creator`
 
@@ -4809,7 +5564,7 @@ The signer is creator.
 
 
 
-<a name="@Specification_1_burn"></a>
+<a id="@Specification_1_burn"></a>
 
 ### Function `burn`
 
@@ -4842,7 +5597,7 @@ creator: creators_address
 
 
 
-<a name="0x3_token_spec_create_token_id_raw"></a>
+<a id="0x3_token_spec_create_token_id_raw"></a>
 
 
 <pre><code><b>fun</b> <a href="token.md#0x3_token_spec_create_token_id_raw">spec_create_token_id_raw</a>(
@@ -4861,7 +5616,7 @@ creator: creators_address
 
 
 
-<a name="@Specification_1_mutate_collection_description"></a>
+<a id="@Specification_1_mutate_collection_description"></a>
 
 ### Function `mutate_collection_description`
 
@@ -4888,7 +5643,7 @@ The description of Collection is mutable.
 
 
 
-<a name="@Specification_1_mutate_collection_uri"></a>
+<a id="@Specification_1_mutate_collection_uri"></a>
 
 ### Function `mutate_collection_uri`
 
@@ -4916,7 +5671,7 @@ The uri of Collection is mutable.
 
 
 
-<a name="@Specification_1_mutate_collection_maximum"></a>
+<a id="@Specification_1_mutate_collection_maximum"></a>
 
 ### Function `mutate_collection_maximum`
 
@@ -4947,7 +5702,7 @@ The maxium of Collection is mutable.
 
 
 
-<a name="@Specification_1_mutate_tokendata_maximum"></a>
+<a id="@Specification_1_mutate_tokendata_maximum"></a>
 
 ### Function `mutate_tokendata_maximum`
 
@@ -4976,7 +5731,7 @@ The token maximum is mutable
 
 
 
-<a name="@Specification_1_mutate_tokendata_uri"></a>
+<a id="@Specification_1_mutate_tokendata_uri"></a>
 
 ### Function `mutate_tokendata_uri`
 
@@ -5004,7 +5759,7 @@ The token uri is mutable
 
 
 
-<a name="@Specification_1_mutate_tokendata_royalty"></a>
+<a id="@Specification_1_mutate_tokendata_royalty"></a>
 
 ### Function `mutate_tokendata_royalty`
 
@@ -5029,7 +5784,7 @@ The token royalty is mutable
 
 
 
-<a name="@Specification_1_mutate_tokendata_description"></a>
+<a id="@Specification_1_mutate_tokendata_description"></a>
 
 ### Function `mutate_tokendata_description`
 
@@ -5054,7 +5809,7 @@ The token description is mutable
 
 
 
-<a name="@Specification_1_mutate_tokendata_property"></a>
+<a id="@Specification_1_mutate_tokendata_property"></a>
 
 ### Function `mutate_tokendata_property`
 
@@ -5077,7 +5832,7 @@ The property map is mutable
 
 
 
-<a name="@Specification_1_mutate_one_token"></a>
+<a id="@Specification_1_mutate_one_token"></a>
 
 ### Function `mutate_one_token`
 
@@ -5104,7 +5859,7 @@ The property map is mutable.
 
 
 
-<a name="@Specification_1_create_royalty"></a>
+<a id="@Specification_1_create_royalty"></a>
 
 ### Function `create_royalty`
 
@@ -5122,7 +5877,7 @@ The property map is mutable.
 The royalty_points_numerator should less than royalty_points_denominator.
 
 
-<a name="0x3_token_CreateRoyaltyAbortsIf"></a>
+<a id="0x3_token_CreateRoyaltyAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_CreateRoyaltyAbortsIf">CreateRoyaltyAbortsIf</a> {
@@ -5136,7 +5891,7 @@ The royalty_points_numerator should less than royalty_points_denominator.
 
 
 
-<a name="@Specification_1_deposit_token"></a>
+<a id="@Specification_1_deposit_token"></a>
 
 ### Function `deposit_token`
 
@@ -5158,7 +5913,7 @@ The royalty_points_numerator should less than royalty_points_denominator.
 
 
 
-<a name="@Specification_1_direct_deposit_with_opt_in"></a>
+<a id="@Specification_1_direct_deposit_with_opt_in"></a>
 
 ### Function `direct_deposit_with_opt_in`
 
@@ -5180,7 +5935,7 @@ The token can direct_transfer.
 
 
 
-<a name="@Specification_1_direct_transfer"></a>
+<a id="@Specification_1_direct_transfer"></a>
 
 ### Function `direct_transfer`
 
@@ -5198,7 +5953,7 @@ Make sure the account has sufficient tokens to withdraw.
 
 
 
-<a name="@Specification_1_initialize_token_store"></a>
+<a id="@Specification_1_initialize_token_store"></a>
 
 ### Function `initialize_token_store`
 
@@ -5215,7 +5970,7 @@ Make sure the account has sufficient tokens to withdraw.
 
 
 
-<a name="0x3_token_InitializeTokenStore"></a>
+<a id="0x3_token_InitializeTokenStore"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_InitializeTokenStore">InitializeTokenStore</a> {
@@ -5230,7 +5985,7 @@ Make sure the account has sufficient tokens to withdraw.
 
 
 
-<a name="@Specification_1_merge"></a>
+<a id="@Specification_1_merge"></a>
 
 ### Function `merge`
 
@@ -5247,7 +6002,7 @@ Make sure the account has sufficient tokens to withdraw.
 
 
 
-<a name="@Specification_1_split"></a>
+<a id="@Specification_1_split"></a>
 
 ### Function `split`
 
@@ -5265,7 +6020,7 @@ Make sure the account has sufficient tokens to withdraw.
 
 
 
-<a name="@Specification_1_transfer"></a>
+<a id="@Specification_1_transfer"></a>
 
 ### Function `transfer`
 
@@ -5285,7 +6040,7 @@ Make sure the account has sufficient tokens to withdraw.
 
 
 
-<a name="@Specification_1_withdraw_with_capability"></a>
+<a id="@Specification_1_withdraw_with_capability"></a>
 
 ### Function `withdraw_with_capability`
 
@@ -5307,7 +6062,7 @@ amount: withdraw_proof.amount};
 
 
 
-<a name="@Specification_1_partial_withdraw_with_capability"></a>
+<a id="@Specification_1_partial_withdraw_with_capability"></a>
 
 ### Function `partial_withdraw_with_capability`
 
@@ -5331,7 +6086,7 @@ amount: withdraw_proof.amount};
 
 
 
-<a name="@Specification_1_withdraw_token"></a>
+<a id="@Specification_1_withdraw_token"></a>
 
 ### Function `withdraw_token`
 
@@ -5350,7 +6105,7 @@ Make sure the account has sufficient tokens to withdraw.
 
 
 
-<a name="@Specification_1_create_collection"></a>
+<a id="@Specification_1_create_collection"></a>
 
 ### Function `create_collection`
 
@@ -5374,7 +6129,7 @@ The collection_data should not exist before you create it.
 
 
 
-<a name="0x3_token_CreateCollectionAbortsIf"></a>
+<a id="0x3_token_CreateCollectionAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_CreateCollectionAbortsIf">CreateCollectionAbortsIf</a> {
@@ -5400,7 +6155,7 @@ The collection_data should not exist before you create it.
 
 
 
-<a name="@Specification_1_check_collection_exists"></a>
+<a id="@Specification_1_check_collection_exists"></a>
 
 ### Function `check_collection_exists`
 
@@ -5416,7 +6171,7 @@ The collection_data should not exist before you create it.
 
 
 
-<a name="@Specification_1_check_tokendata_exists"></a>
+<a id="@Specification_1_check_tokendata_exists"></a>
 
 ### Function `check_tokendata_exists`
 
@@ -5439,7 +6194,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_create_tokendata"></a>
+<a id="@Specification_1_create_tokendata"></a>
 
 ### Function `create_tokendata`
 
@@ -5484,7 +6239,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="0x3_token_spec_create_token_data_id"></a>
+<a id="0x3_token_spec_create_token_data_id"></a>
 
 
 <pre><code><b>fun</b> <a href="token.md#0x3_token_spec_create_token_data_id">spec_create_token_data_id</a>(
@@ -5498,7 +6253,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_collection_supply"></a>
+<a id="@Specification_1_get_collection_supply"></a>
 
 ### Function `get_collection_supply`
 
@@ -5514,7 +6269,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_collection_description"></a>
+<a id="@Specification_1_get_collection_description"></a>
 
 ### Function `get_collection_description`
 
@@ -5530,7 +6285,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_collection_uri"></a>
+<a id="@Specification_1_get_collection_uri"></a>
 
 ### Function `get_collection_uri`
 
@@ -5546,7 +6301,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_collection_maximum"></a>
+<a id="@Specification_1_get_collection_maximum"></a>
 
 ### Function `get_collection_maximum`
 
@@ -5562,7 +6317,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_token_supply"></a>
+<a id="@Specification_1_get_token_supply"></a>
 
 ### Function `get_token_supply`
 
@@ -5580,7 +6335,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_tokendata_largest_property_version"></a>
+<a id="@Specification_1_get_tokendata_largest_property_version"></a>
 
 ### Function `get_tokendata_largest_property_version`
 
@@ -5598,7 +6353,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_create_token_mutability_config"></a>
+<a id="@Specification_1_create_token_mutability_config"></a>
 
 ### Function `create_token_mutability_config`
 
@@ -5617,7 +6372,7 @@ The mutate_setting shuold have a value.
 
 
 
-<a name="0x3_token_CreateTokenMutabilityConfigAbortsIf"></a>
+<a id="0x3_token_CreateTokenMutabilityConfigAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_CreateTokenMutabilityConfigAbortsIf">CreateTokenMutabilityConfigAbortsIf</a> {
@@ -5633,7 +6388,7 @@ The mutate_setting shuold have a value.
 
 
 
-<a name="@Specification_1_create_collection_mutability_config"></a>
+<a id="@Specification_1_create_collection_mutability_config"></a>
 
 ### Function `create_collection_mutability_config`
 
@@ -5650,7 +6405,7 @@ The mutate_setting shuold have a value.
 
 
 
-<a name="0x3_token_CreateCollectionMutabilityConfigAbortsIf"></a>
+<a id="0x3_token_CreateCollectionMutabilityConfigAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_CreateCollectionMutabilityConfigAbortsIf">CreateCollectionMutabilityConfigAbortsIf</a> {
@@ -5664,7 +6419,7 @@ The mutate_setting shuold have a value.
 
 
 
-<a name="@Specification_1_mint_token"></a>
+<a id="@Specification_1_mint_token"></a>
 
 ### Function `mint_token`
 
@@ -5684,7 +6439,7 @@ The sum of supply and the amount of mint Token is less than maximum.
 
 
 
-<a name="0x3_token_MintTokenAbortsIf"></a>
+<a id="0x3_token_MintTokenAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_MintTokenAbortsIf">MintTokenAbortsIf</a> {
@@ -5707,7 +6462,7 @@ The sum of supply and the amount of mint Token is less than maximum.
 
 
 
-<a name="@Specification_1_mint_token_to"></a>
+<a id="@Specification_1_mint_token_to"></a>
 
 ### Function `mint_token_to`
 
@@ -5740,7 +6495,7 @@ The sum of supply and the amount of mint Token is less than maximum.
 
 
 
-<a name="@Specification_1_create_token_data_id"></a>
+<a id="@Specification_1_create_token_data_id"></a>
 
 ### Function `create_token_data_id`
 
@@ -5759,7 +6514,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="0x3_token_CreateTokenDataIdAbortsIf"></a>
+<a id="0x3_token_CreateTokenDataIdAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_CreateTokenDataIdAbortsIf">CreateTokenDataIdAbortsIf</a> {
@@ -5773,7 +6528,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_create_token_id_raw"></a>
+<a id="@Specification_1_create_token_id_raw"></a>
 
 ### Function `create_token_id_raw`
 
@@ -5792,7 +6547,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="0x3_token_spec_balance_of"></a>
+<a id="0x3_token_spec_balance_of"></a>
 
 
 <pre><code><b>fun</b> <a href="token.md#0x3_token_spec_balance_of">spec_balance_of</a>(owner: <b>address</b>, id: <a href="token.md#0x3_token_TokenId">TokenId</a>): u64 {
@@ -5810,7 +6565,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_royalty"></a>
+<a id="@Specification_1_get_royalty"></a>
 
 ### Function `get_royalty`
 
@@ -5828,7 +6583,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_property_map"></a>
+<a id="@Specification_1_get_property_map"></a>
 
 ### Function `get_property_map`
 
@@ -5848,7 +6603,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_tokendata_maximum"></a>
+<a id="@Specification_1_get_tokendata_maximum"></a>
 
 ### Function `get_tokendata_maximum`
 
@@ -5867,7 +6622,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_tokendata_uri"></a>
+<a id="@Specification_1_get_tokendata_uri"></a>
 
 ### Function `get_tokendata_uri`
 
@@ -5885,7 +6640,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_tokendata_description"></a>
+<a id="@Specification_1_get_tokendata_description"></a>
 
 ### Function `get_tokendata_description`
 
@@ -5904,7 +6659,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_tokendata_royalty"></a>
+<a id="@Specification_1_get_tokendata_royalty"></a>
 
 ### Function `get_tokendata_royalty`
 
@@ -5921,7 +6676,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="0x3_token_GetTokendataRoyaltyAbortsIf"></a>
+<a id="0x3_token_GetTokendataRoyaltyAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_GetTokendataRoyaltyAbortsIf">GetTokendataRoyaltyAbortsIf</a> {
@@ -5935,7 +6690,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_tokendata_mutability_config"></a>
+<a id="@Specification_1_get_tokendata_mutability_config"></a>
 
 ### Function `get_tokendata_mutability_config`
 
@@ -5954,7 +6709,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_get_collection_mutability_config"></a>
+<a id="@Specification_1_get_collection_mutability_config"></a>
 
 ### Function `get_collection_mutability_config`
 
@@ -5973,7 +6728,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_withdraw_with_event_internal"></a>
+<a id="@Specification_1_withdraw_with_event_internal"></a>
 
 ### Function `withdraw_with_event_internal`
 
@@ -5990,7 +6745,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="0x3_token_WithdrawWithEventInternalAbortsIf"></a>
+<a id="0x3_token_WithdrawWithEventInternalAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_WithdrawWithEventInternalAbortsIf">WithdrawWithEventInternalAbortsIf</a> {
@@ -6007,7 +6762,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_update_token_property_internal"></a>
+<a id="@Specification_1_update_token_property_internal"></a>
 
 ### Function `update_token_property_internal`
 
@@ -6026,7 +6781,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_direct_deposit"></a>
+<a id="@Specification_1_direct_deposit"></a>
 
 ### Function `direct_deposit`
 
@@ -6045,7 +6800,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="0x3_token_DirectDepositAbortsIf"></a>
+<a id="0x3_token_DirectDepositAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_DirectDepositAbortsIf">DirectDepositAbortsIf</a> {
@@ -6064,7 +6819,7 @@ The length of name should less than MAX_NFT_NAME_LENGTH
 
 
 
-<a name="@Specification_1_assert_collection_exists"></a>
+<a id="@Specification_1_assert_collection_exists"></a>
 
 ### Function `assert_collection_exists`
 
@@ -6082,7 +6837,7 @@ The collection_name should exist in collection_data of the creator_address's Col
 
 
 
-<a name="0x3_token_AssertCollectionExistsAbortsIf"></a>
+<a id="0x3_token_AssertCollectionExistsAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_AssertCollectionExistsAbortsIf">AssertCollectionExistsAbortsIf</a> {
@@ -6096,7 +6851,7 @@ The collection_name should exist in collection_data of the creator_address's Col
 
 
 
-<a name="@Specification_1_assert_tokendata_exists"></a>
+<a id="@Specification_1_assert_tokendata_exists"></a>
 
 ### Function `assert_tokendata_exists`
 
@@ -6116,7 +6871,7 @@ The token_data_id is in the all_token_data.
 
 
 
-<a name="0x3_token_AssertTokendataExistsAbortsIf"></a>
+<a id="0x3_token_AssertTokendataExistsAbortsIf"></a>
 
 
 <pre><code><b>schema</b> <a href="token.md#0x3_token_AssertTokendataExistsAbortsIf">AssertTokendataExistsAbortsIf</a> {
@@ -6133,7 +6888,7 @@ The token_data_id is in the all_token_data.
 
 
 
-<a name="@Specification_1_assert_non_standard_reserved_property"></a>
+<a id="@Specification_1_assert_non_standard_reserved_property"></a>
 
 ### Function `assert_non_standard_reserved_property`
 
@@ -6149,7 +6904,7 @@ The token_data_id is in the all_token_data.
 
 
 
-<a name="@Specification_1_initialize_token_script"></a>
+<a id="@Specification_1_initialize_token_script"></a>
 
 ### Function `initialize_token_script`
 
@@ -6166,7 +6921,7 @@ Deprecated function
 
 
 
-<a name="@Specification_1_initialize_token"></a>
+<a id="@Specification_1_initialize_token"></a>
 
 ### Function `initialize_token`
 

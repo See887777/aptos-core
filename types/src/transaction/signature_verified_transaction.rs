@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    aggregator::AggregatorID,
     contract_event::ContractEvent,
     state_store::state_key::StateKey,
     transaction::{BlockExecutableTransaction, Transaction},
@@ -19,11 +18,37 @@ pub enum SignatureVerifiedTransaction {
     Invalid(Transaction),
 }
 
+impl PartialEq for SignatureVerifiedTransaction {
+    fn eq(&self, other: &Self) -> bool {
+        match (self, other) {
+            (
+                SignatureVerifiedTransaction::Invalid(a),
+                SignatureVerifiedTransaction::Invalid(b),
+            ) => a.eq(b),
+            (SignatureVerifiedTransaction::Valid(a), SignatureVerifiedTransaction::Valid(b)) => {
+                a.eq(b)
+            },
+            _ => {
+                panic!("Unexpected equality check on {:?} and {:?}", self, other)
+            },
+        }
+    }
+}
+
+impl Eq for SignatureVerifiedTransaction {}
+
 impl SignatureVerifiedTransaction {
     pub fn into_inner(self) -> Transaction {
         match self {
             SignatureVerifiedTransaction::Valid(txn) => txn,
             SignatureVerifiedTransaction::Invalid(txn) => txn,
+        }
+    }
+
+    pub fn borrow_into_inner(&self) -> &Transaction {
+        match self {
+            SignatureVerifiedTransaction::Valid(ref txn) => txn,
+            SignatureVerifiedTransaction::Invalid(ref txn) => txn,
         }
     }
 
@@ -61,10 +86,18 @@ impl SignatureVerifiedTransaction {
 
 impl BlockExecutableTransaction for SignatureVerifiedTransaction {
     type Event = ContractEvent;
-    type Identifier = AggregatorID;
     type Key = StateKey;
     type Tag = StructTag;
     type Value = WriteOp;
+
+    fn user_txn_bytes_len(&self) -> usize {
+        match self {
+            SignatureVerifiedTransaction::Valid(Transaction::UserTransaction(txn)) => {
+                txn.txn_bytes_len()
+            },
+            _ => 0,
+        }
+    }
 }
 
 impl From<Transaction> for SignatureVerifiedTransaction {

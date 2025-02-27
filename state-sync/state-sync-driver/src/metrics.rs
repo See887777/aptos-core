@@ -2,24 +2,52 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use aptos_metrics_core::{
-    histogram_opts, register_histogram_vec, register_int_counter_vec, register_int_gauge_vec,
-    HistogramTimer, HistogramVec, IntCounterVec, IntGaugeVec,
+    exponential_buckets, histogram_opts, register_histogram_vec, register_int_counter_vec,
+    register_int_gauge, register_int_gauge_vec, HistogramTimer, HistogramVec, IntCounterVec,
+    IntGauge, IntGaugeVec,
 };
 use once_cell::sync::Lazy;
+use std::time::Instant;
 
-/// Useful metric labels
+/// Driver metric labels
 pub const DRIVER_CLIENT_NOTIFICATION: &str = "driver_client_notification";
 pub const DRIVER_CONSENSUS_COMMIT_NOTIFICATION: &str = "driver_consensus_commit_notification";
-pub const DRIVER_CONSENSUS_SYNC_NOTIFICATION: &str = "driver_consensus_sync_notification";
+pub const DRIVER_CONSENSUS_SYNC_DURATION_NOTIFICATION: &str =
+    "driver_consensus_sync_duration_notification";
+pub const DRIVER_CONSENSUS_SYNC_TARGET_NOTIFICATION: &str =
+    "driver_consensus_sync_target_notification";
+
+/// Data notification metric labels
+pub const NOTIFICATION_CREATE_TO_APPLY: &str = "notification_create_to_apply";
+pub const NOTIFICATION_CREATE_TO_COMMIT: &str = "notification_create_to_commit";
+pub const NOTIFICATION_CREATE_TO_COMMIT_POST_PROCESS: &str =
+    "notification_create_to_commit_post_process";
+pub const NOTIFICATION_CREATE_TO_EXECUTE: &str = "notification_create_to_execute";
+pub const NOTIFICATION_CREATE_TO_RECEIVE: &str = "notification_create_to_receive";
+pub const NOTIFICATION_CREATE_TO_UPDATE_LEDGER: &str = "notification_create_to_update_ledger";
+
+/// Storage synchronizer metric labels
 pub const STORAGE_SYNCHRONIZER_PENDING_DATA: &str = "storage_synchronizer_pending_data";
 pub const STORAGE_SYNCHRONIZER_APPLY_CHUNK: &str = "apply_chunk";
 pub const STORAGE_SYNCHRONIZER_EXECUTE_CHUNK: &str = "execute_chunk";
+pub const STORAGE_SYNCHRONIZER_UPDATE_LEDGER: &str = "update_ledger";
 pub const STORAGE_SYNCHRONIZER_COMMIT_CHUNK: &str = "commit_chunk";
+pub const STORAGE_SYNCHRONIZER_COMMIT_POST_PROCESS: &str = "commit_post_process";
+pub const STORAGE_SYNCHRONIZER_STATE_VALUE_CHUNK: &str = "state_value_chunk";
+
+/// Storage synchronizer pipeline channel labels
+pub const STORAGE_SYNCHRONIZER_EXECUTOR: &str = "executor";
+pub const STORAGE_SYNCHRONIZER_LEDGER_UPDATER: &str = "ledger_updater";
+pub const STORAGE_SYNCHRONIZER_COMMITTER: &str = "committer";
+pub const STORAGE_SYNCHRONIZER_COMMIT_POST_PROCESSOR: &str = "commit_post_processor";
+pub const STORAGE_SYNCHRONIZER_STATE_SNAPSHOT_RECEIVER: &str = "state_snapshot_receiver";
 
 /// An enum representing the component currently executing
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ExecutingComponent {
     Bootstrapper,
     Consensus,
+    ConsensusObserver,
     ContinuousSyncer,
 }
 
@@ -28,18 +56,22 @@ impl ExecutingComponent {
         match self {
             ExecutingComponent::Bootstrapper => "bootstrapper",
             ExecutingComponent::Consensus => "consensus",
+            ExecutingComponent::ConsensusObserver => "consensus_observer",
             ExecutingComponent::ContinuousSyncer => "continuous_syncer",
         }
     }
 }
 
-/// An enum of storage synchronizer operations performed by state sync
+/// An enum of storage synchronizer operations performed by
+/// state sync. Each of these is a metric label to track.
 pub enum StorageSynchronizerOperations {
-    AppliedTransactionOutputs, // Applied a chunk of transactions outputs.
-    ExecutedTransactions,      // Executed a chunk of transactions.
-    Synced,                    // Wrote a chunk of transactions and outputs to storage.
-    SyncedStates,              // Wrote a chunk of state values to storage.
-    SyncedEpoch, // Wrote a chunk of transactions and outputs to storage that resulted in a new epoch.
+    AppliedTransactionOutputs, // The total number of applied transaction outputs
+    ExecutedTransactions,      // The total number of executed transactions
+    Synced,                    // The latest synced version (as read from storage)
+    SyncedIncremental, // The latest synced version (calculated as the sum of all processed transactions)
+    SyncedStates,      // The total number of synced states
+    SyncedEpoch,       // The latest synced epoch (as read from storage)
+    SyncedEpochIncremental, // The latest synced epoch (calculated as the sum of all processed epochs)
 }
 
 impl StorageSynchronizerOperations {
@@ -50,8 +82,10 @@ impl StorageSynchronizerOperations {
             },
             StorageSynchronizerOperations::ExecutedTransactions => "executed_transactions",
             StorageSynchronizerOperations::Synced => "synced",
-            StorageSynchronizerOperations::SyncedEpoch => "synced_epoch",
+            StorageSynchronizerOperations::SyncedIncremental => "synced_incremental",
             StorageSynchronizerOperations::SyncedStates => "synced_states",
+            StorageSynchronizerOperations::SyncedEpoch => "synced_epoch",
+            StorageSynchronizerOperations::SyncedEpochIncremental => "synced_epoch_incremental",
         }
     }
 }
@@ -69,6 +103,15 @@ pub static BOOTSTRAPPER_ERRORS: Lazy<IntCounterVec> = Lazy::new(|| {
         "aptos_state_sync_bootstrapper_errors",
         "Counters related to state sync bootstrapper errors",
         &["error_label"]
+    )
+    .unwrap()
+});
+
+/// Gauge indicating whether consensus is currently executing
+pub static CONSENSUS_EXECUTING_GAUGE: Lazy<IntGauge> = Lazy::new(|| {
+    register_int_gauge!(
+        "aptos_state_sync_consensus_executing_gauge",
+        "Gauge indicating whether consensus is currently executing"
     )
     .unwrap()
 });
@@ -93,6 +136,17 @@ pub static DRIVER_COUNTERS: Lazy<IntCounterVec> = Lazy::new(|| {
     .unwrap()
 });
 
+/// Counter for tracking data notification latencies
+pub static DATA_NOTIFICATION_LATENCIES: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
+        "aptos_state_sync_data_notification_latencies",
+        "Counters related to the data notification latencies",
+        &["label"],
+        exponential_buckets(/*start=*/ 1e-3, /*factor=*/ 2.0, /*count=*/ 30).unwrap(),
+    )
+    .unwrap()
+});
+
 /// Gauge for state sync bootstrapper fallback mode
 pub static DRIVER_FALLBACK_MODE: Lazy<IntGaugeVec> = Lazy::new(|| {
     register_int_gauge_vec!(
@@ -103,7 +157,7 @@ pub static DRIVER_FALLBACK_MODE: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-/// Counters related to the currently executing component
+/// Counters related to the currently executing component in the main driver loop
 pub static EXECUTING_COMPONENT: Lazy<IntCounterVec> = Lazy::new(|| {
     register_int_counter_vec!(
         "aptos_state_sync_executing_component_counters",
@@ -143,19 +197,13 @@ pub static STORAGE_SYNCHRONIZER_GAUGES: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
-// Latency buckets for storage synchronizer operations
-const STORAGE_SYNCHRONIZER_LATENCY_BUCKETS_SECS: &[f64] = &[
-    0.05, 0.1, 0.2, 0.3, 0.5, 0.75, 1.0, 1.5, 2.0, 3.0, 5.0, 7.5, 10.0, 15.0, 20.0, 30.0, 40.0,
-    60.0, 120.0, 180.0, 240.0, 300.0,
-];
-
 /// Counter for tracking storage synchronizer latencies
 pub static STORAGE_SYNCHRONIZER_LATENCIES: Lazy<HistogramVec> = Lazy::new(|| {
     register_histogram_vec!(
         "aptos_state_sync_storage_synchronizer_latencies",
         "Counters related to the storage synchronizer latencies",
         &["label"],
-        STORAGE_SYNCHRONIZER_LATENCY_BUCKETS_SECS.to_vec()
+        exponential_buckets(/*start=*/ 1e-3, /*factor=*/ 2.0, /*count=*/ 20).unwrap(),
     )
     .unwrap()
 });
@@ -170,6 +218,17 @@ pub static STORAGE_SYNCHRONIZER_OPERATIONS: Lazy<IntGaugeVec> = Lazy::new(|| {
     .unwrap()
 });
 
+/// Gauges for tracking the storage synchronizer pipeline channel backpressure
+pub static STORAGE_SYNCHRONIZER_PIPELINE_CHANNEL_BACKPRESSURE: Lazy<IntGaugeVec> =
+    Lazy::new(|| {
+        register_int_gauge_vec!(
+            "aptos_state_sync_storage_synchronizer_pipeline_channel_backpressure",
+            "Gauges for tracking the storage synchronizer pipeline channel backpressure",
+            &["channel"]
+        )
+        .unwrap()
+    });
+
 /// Increments the given counter with the provided label values.
 pub fn increment_counter(counter: &Lazy<IntCounterVec>, label: &str) {
     counter.with_label_values(&[label]).inc();
@@ -183,6 +242,13 @@ pub fn increment_gauge(gauge: &Lazy<IntGaugeVec>, label: &str, delta: u64) {
 /// Decrements the gauge with the specific label by the given delta
 pub fn decrement_gauge(gauge: &Lazy<IntGaugeVec>, label: &str, delta: u64) {
     gauge.with_label_values(&[label]).sub(delta as i64);
+}
+
+/// Adds a new duration observation for the given histogram and label
+pub fn observe_duration(histogram: &Lazy<HistogramVec>, label: &str, start_time: Instant) {
+    histogram
+        .with_label_values(&[label])
+        .observe(start_time.elapsed().as_secs_f64());
 }
 
 /// Adds a new observation for the given histogram, label and value

@@ -140,16 +140,24 @@ subsequent incarnation to finish.
 extern crate scopeguard;
 
 mod captured_reads;
+mod code_cache;
+pub mod code_cache_global;
+pub mod code_cache_global_manager;
 pub mod counters;
 pub mod errors;
 pub mod executor;
+mod executor_utilities;
 pub mod explicit_sync_wrapper;
+mod limit_processor;
 #[cfg(any(test, feature = "fuzzing"))]
 pub mod proptest_types;
 mod scheduler;
 pub mod task;
 pub mod txn_commit_hook;
 pub mod txn_last_input_output;
+pub mod txn_provider;
+pub mod types;
 #[cfg(test)]
 mod unit_tests;
+mod value_exchange;
 pub mod view;

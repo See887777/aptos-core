@@ -7,10 +7,11 @@ use crate::{
     global_summary::GlobalDataSummary,
     interface::{AptosDataClientInterface, Response, SubscriptionRequestMetadata},
     poller::DataSummaryPoller,
+    priority::PeerPriority,
 };
 use aptos_channels::{aptos_channel, message_queues::QueueStyle};
 use aptos_config::{
-    config::{AptosDataClientConfig, BaseConfig},
+    config::{AptosDataClientConfig, BaseConfig, RoleType},
     network_id::{NetworkId, PeerNetworkId},
 };
 use aptos_netcore::transport::ConnectionOrigin;
@@ -23,7 +24,9 @@ use aptos_network::{
     },
     transport::ConnectionMetadata,
 };
-use aptos_peer_monitoring_service_types::PeerMonitoringMetadata;
+use aptos_peer_monitoring_service_types::{
+    response::NetworkInformationResponse, PeerMonitoringMetadata,
+};
 use aptos_storage_interface::DbReader;
 use aptos_storage_service_client::StorageServiceClient;
 use aptos_storage_service_server::network::{NetworkRequest, ResponseSender};
@@ -45,9 +48,11 @@ use std::{collections::HashMap, sync::Arc};
 
 /// A simple mock network for testing the data client
 pub struct MockNetwork {
+    base_config: BaseConfig,                   // The base config of the node
+    networks: Vec<NetworkId>,                  // The networks that the node is connected to
+    peers_and_metadata: Arc<PeersAndMetadata>, // The peers and metadata struct
     peer_mgr_reqs_rxs:
-        HashMap<NetworkId, aptos_channel::Receiver<(PeerId, ProtocolId), PeerManagerRequest>>,
-    peers_and_metadata: Arc<PeersAndMetadata>,
+        HashMap<NetworkId, aptos_channel::Receiver<(PeerId, ProtocolId), PeerManagerRequest>>, // The peer manager request receivers
 }
 
 impl MockNetwork {
@@ -101,7 +106,7 @@ impl MockNetwork {
         let data_client_config = data_client_config.unwrap_or_default();
         let (client, poller) = AptosDataClient::new(
             data_client_config,
-            base_config,
+            base_config.clone(),
             mock_time.clone(),
             create_mock_db_reader(),
             storage_service_client,
@@ -110,6 +115,8 @@ impl MockNetwork {
 
         // Create the mock network
         let mock_network = Self {
+            base_config,
+            networks,
             peer_mgr_reqs_rxs,
             peers_and_metadata,
         };
@@ -118,14 +125,41 @@ impl MockNetwork {
     }
 
     /// Add a new peer to the network peer DB
-    pub fn add_peer(&mut self, priority: bool) -> PeerNetworkId {
-        // Get the network id
-        let network_id = if priority {
-            NetworkId::Validator
-        } else {
-            NetworkId::Public
+    pub fn add_peer(&mut self, peer_priority: PeerPriority) -> PeerNetworkId {
+        // Determine the network ID and connection direction
+        // based on the given peer priority and the node role.
+        let (network_id, outbound_connection) = match self.base_config.role {
+            RoleType::Validator => {
+                // Validators prioritize other validators, then VFNs, then PFNs
+                match peer_priority {
+                    PeerPriority::HighPriority => (NetworkId::Validator, true),
+                    PeerPriority::MediumPriority => (NetworkId::Vfn, false),
+                    PeerPriority::LowPriority => (NetworkId::Public, false),
+                }
+            },
+            RoleType::FullNode => {
+                if self.networks.contains(&NetworkId::Vfn) {
+                    // VFNs prioritize validators, then other VFNs, then PFNs
+                    match peer_priority {
+                        PeerPriority::HighPriority => (NetworkId::Vfn, true),
+                        PeerPriority::MediumPriority => (NetworkId::Public, true), // Outbound connection to VFN
+                        PeerPriority::LowPriority => (NetworkId::Public, false), // Inbound connection from PFN
+                    }
+                } else {
+                    // PFNs prioritize VFNs, then other PFNs
+                    match peer_priority {
+                        PeerPriority::HighPriority => (NetworkId::Public, true), // Outbound connection to VFN
+                        PeerPriority::MediumPriority => {
+                            unimplemented!("Medium priority peers are not yet supported for PFNs!")
+                        },
+                        PeerPriority::LowPriority => (NetworkId::Public, false), // Inbound connection from PFN
+                    }
+                }
+            },
         };
-        self.add_peer_with_network_id(network_id, false)
+
+        // Create and add the new peer
+        self.add_peer_with_network_id(network_id, outbound_connection)
     }
 
     /// Add a new peer to the network peer DB with the specified network
@@ -153,8 +187,17 @@ impl MockNetwork {
             .unwrap();
 
         // Insert peer monitoring metadata for the peer
-        let peer_monitoring_metadata =
-            PeerMonitoringMetadata::new(Some(OsRng.gen()), None, None, None);
+        let network_info_response = NetworkInformationResponse {
+            connected_peers: Default::default(),
+            distance_from_validators: OsRng.gen(),
+        };
+        let peer_monitoring_metadata = PeerMonitoringMetadata::new(
+            Some(OsRng.gen()),
+            None,
+            Some(network_info_response),
+            None,
+            None,
+        );
         self.peers_and_metadata
             .update_peer_monitoring_metadata(peer_network_id, peer_monitoring_metadata)
             .unwrap();
@@ -329,7 +372,7 @@ pub fn create_mock_db_reader() -> Arc<dyn DbReader> {
 /// the functions required by the tests.
 pub struct MockDatabaseReader {}
 impl DbReader for MockDatabaseReader {
-    fn get_block_timestamp(&self, version: Version) -> anyhow::Result<u64> {
+    fn get_block_timestamp(&self, version: Version) -> aptos_storage_interface::Result<u64> {
         Ok(version * 100_000)
     }
 }

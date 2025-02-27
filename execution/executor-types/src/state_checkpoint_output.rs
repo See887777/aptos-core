@@ -3,127 +3,53 @@
 
 #![forbid(unsafe_code)]
 
-use crate::parsed_transaction_output::TransactionsWithParsedOutput;
-use anyhow::{ensure, Result};
 use aptos_crypto::HashValue;
-use aptos_storage_interface::cached_state_view::ShardedStateCache;
-use aptos_types::{state_store::ShardedStateUpdates, transaction::TransactionStatus};
-use itertools::zip_eq;
+use aptos_drop_helper::DropHelper;
+use aptos_storage_interface::state_store::state_summary::LedgerStateSummary;
+use derive_more::Deref;
+use std::sync::Arc;
 
-#[derive(Default)]
-pub struct TransactionsByStatus {
-    statuses: Vec<TransactionStatus>,
-    to_keep: TransactionsWithParsedOutput,
-    to_discard: TransactionsWithParsedOutput,
-    to_retry: TransactionsWithParsedOutput,
-}
-
-impl TransactionsByStatus {
-    pub fn new(
-        status: Vec<TransactionStatus>,
-        to_keep: TransactionsWithParsedOutput,
-        to_discard: TransactionsWithParsedOutput,
-        to_retry: TransactionsWithParsedOutput,
-    ) -> Self {
-        Self {
-            statuses: status,
-            to_keep,
-            to_discard,
-            to_retry,
-        }
-    }
-
-    pub fn num_txns_to_keep(&self) -> usize {
-        self.to_keep.len()
-    }
-
-    pub fn txn_statuses(&self) -> &[TransactionStatus] {
-        &self.statuses
-    }
-
-    pub fn into_inner(
-        self,
-    ) -> (
-        Vec<TransactionStatus>,
-        TransactionsWithParsedOutput,
-        TransactionsWithParsedOutput,
-        TransactionsWithParsedOutput,
-    ) {
-        (self.statuses, self.to_keep, self.to_discard, self.to_retry)
-    }
-}
-
-#[derive(Default)]
+#[derive(Clone, Debug, Deref)]
 pub struct StateCheckpointOutput {
-    txns: TransactionsByStatus,
-    per_version_state_updates: Vec<ShardedStateUpdates>,
-    state_checkpoint_hashes: Vec<Option<HashValue>>,
-    state_updates_before_last_checkpoint: ShardedStateUpdates,
-    sharded_state_cache: ShardedStateCache,
+    #[deref]
+    inner: Arc<DropHelper<Inner>>,
 }
 
 impl StateCheckpointOutput {
     pub fn new(
-        txns: TransactionsByStatus,
-        per_version_state_updates: Vec<ShardedStateUpdates>,
+        state_summary: LedgerStateSummary,
         state_checkpoint_hashes: Vec<Option<HashValue>>,
-        state_updates_before_last_checkpoint: ShardedStateUpdates,
-        sharded_state_cache: ShardedStateCache,
     ) -> Self {
-        Self {
-            txns,
-            per_version_state_updates,
+        Self::new_impl(Inner {
+            state_summary,
             state_checkpoint_hashes,
-            state_updates_before_last_checkpoint,
-            sharded_state_cache,
+        })
+    }
+
+    pub fn new_empty(parent_state_summary: LedgerStateSummary) -> Self {
+        Self::new_impl(Inner {
+            state_summary: parent_state_summary,
+            state_checkpoint_hashes: vec![],
+        })
+    }
+
+    pub fn new_dummy() -> Self {
+        Self::new_empty(LedgerStateSummary::new_empty())
+    }
+
+    fn new_impl(inner: Inner) -> Self {
+        Self {
+            inner: Arc::new(DropHelper::new(inner)),
         }
     }
 
-    pub fn txn_statuses(&self) -> &[TransactionStatus] {
-        self.txns.txn_statuses()
+    pub fn reconfig_suffix(&self) -> Self {
+        Self::new_empty(self.state_summary.clone())
     }
+}
 
-    pub fn into_inner(
-        self,
-    ) -> (
-        TransactionsByStatus,
-        Vec<ShardedStateUpdates>,
-        Vec<Option<HashValue>>,
-        ShardedStateUpdates,
-        ShardedStateCache,
-    ) {
-        (
-            self.txns,
-            self.per_version_state_updates,
-            self.state_checkpoint_hashes,
-            self.state_updates_before_last_checkpoint,
-            self.sharded_state_cache,
-        )
-    }
-
-    pub fn check_and_update_state_checkpoint_hashes(
-        &mut self,
-        trusted_hashes: Vec<Option<HashValue>>,
-    ) -> Result<()> {
-        let len = self.state_checkpoint_hashes.len();
-        ensure!(
-            len == trusted_hashes.len(),
-            "Number of txns doesn't match. self: {len}, trusted: {}",
-            trusted_hashes.len()
-        );
-
-        zip_eq(
-            self.state_checkpoint_hashes.iter_mut(),
-            trusted_hashes.iter(),
-        )
-        .try_for_each(|(self_hash, trusted_hash)| {
-            if self_hash.is_none() && trusted_hash.is_some() {
-                *self_hash = *trusted_hash;
-            } else {
-                ensure!(self_hash == trusted_hash,
-                        "State checkpoint hash doesn't match, self: {self_hash:?}, trusted: {trusted_hash:?}");
-            }
-            Ok(())
-        })
-    }
+#[derive(Debug)]
+pub struct Inner {
+    pub state_summary: LedgerStateSummary,
+    pub state_checkpoint_hashes: Vec<Option<HashValue>>,
 }

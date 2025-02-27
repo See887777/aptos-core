@@ -3,29 +3,44 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #[cfg(feature = "testing")]
-use anyhow::Error;
+use aptos_aggregator::resolver::TAggregatorV1View;
 #[cfg(feature = "testing")]
-use aptos_aggregator::resolver::{AggregatorReadMode, TAggregatorView};
+use aptos_aggregator::{bounded_math::SignedU128, types::DelayedFieldsSpeculativeError};
+#[cfg(feature = "testing")]
+use aptos_aggregator::{resolver::TDelayedFieldView, types::DelayedFieldValue};
+#[cfg(feature = "testing")]
+use aptos_framework::natives::randomness::RandomnessContext;
 #[cfg(feature = "testing")]
 use aptos_framework::natives::{cryptography::algebra::AlgebraContext, event::NativeEventContext};
 use aptos_gas_schedule::{MiscGasParameters, NativeGasParameters, LATEST_GAS_FEATURE_VERSION};
 use aptos_native_interface::SafeNativeBuilder;
 #[cfg(feature = "testing")]
 use aptos_table_natives::{TableHandle, TableResolver};
-#[cfg(feature = "testing")]
-use aptos_types::aggregator::AggregatorID;
-use aptos_types::{
-    account_config::CORE_CODE_ADDRESS,
-    on_chain_config::{Features, TimedFeatures, TimedFeaturesBuilder},
-};
+use aptos_types::on_chain_config::{Features, TimedFeatures, TimedFeaturesBuilder};
 #[cfg(feature = "testing")]
 use aptos_types::{
     chain_id::ChainId,
-    state_store::{state_key::StateKey, state_value::StateValue},
+    error::{PanicError, PanicOr},
+    state_store::{
+        state_key::StateKey,
+        state_value::{StateValue, StateValueMetadata},
+    },
 };
+use aptos_vm_environment::natives::aptos_natives_with_builder;
 #[cfg(feature = "testing")]
 use bytes::Bytes;
+#[cfg(feature = "testing")]
+use move_binary_format::errors::PartialVMResult;
+#[cfg(feature = "testing")]
+use move_core_types::{language_storage::StructTag, value::MoveTypeLayout};
 use move_vm_runtime::native_functions::NativeFunctionTable;
+#[cfg(feature = "testing")]
+use move_vm_types::delayed_values::delayed_field_id::DelayedFieldID;
+#[cfg(feature = "testing")]
+use std::{
+    collections::{BTreeMap, HashSet},
+    sync::Arc,
+};
 #[cfg(feature = "testing")]
 use {
     aptos_framework::natives::{
@@ -41,32 +56,90 @@ use {
 struct AptosBlankStorage;
 
 #[cfg(feature = "testing")]
-impl TAggregatorView for AptosBlankStorage {
-    type IdentifierV1 = StateKey;
-    type IdentifierV2 = AggregatorID;
+impl AptosBlankStorage {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+#[cfg(feature = "testing")]
+impl TAggregatorV1View for AptosBlankStorage {
+    type Identifier = StateKey;
 
     fn get_aggregator_v1_state_value(
         &self,
-        _id: &Self::IdentifierV1,
-        _mode: AggregatorReadMode,
-    ) -> anyhow::Result<Option<StateValue>> {
+        _id: &Self::Identifier,
+    ) -> PartialVMResult<Option<StateValue>> {
         Ok(None)
+    }
+}
+
+#[cfg(feature = "testing")]
+impl TDelayedFieldView for AptosBlankStorage {
+    type Identifier = DelayedFieldID;
+    type ResourceGroupTag = StructTag;
+    type ResourceKey = StateKey;
+
+    fn get_delayed_field_value(
+        &self,
+        _id: &Self::Identifier,
+    ) -> Result<DelayedFieldValue, PanicOr<DelayedFieldsSpeculativeError>> {
+        unreachable!()
+    }
+
+    fn delayed_field_try_add_delta_outcome(
+        &self,
+        _id: &Self::Identifier,
+        _base_delta: &SignedU128,
+        _delta: &SignedU128,
+        _max_value: u128,
+    ) -> Result<bool, PanicOr<DelayedFieldsSpeculativeError>> {
+        unreachable!()
+    }
+
+    fn generate_delayed_field_id(&self, _width: u32) -> Self::Identifier {
+        unreachable!()
+    }
+
+    fn validate_delayed_field_id(&self, _id: &Self::Identifier) -> Result<(), PanicError> {
+        unreachable!()
+    }
+
+    fn get_reads_needing_exchange(
+        &self,
+        _delayed_write_set_keys: &HashSet<Self::Identifier>,
+        _skip: &HashSet<Self::ResourceKey>,
+    ) -> Result<
+        BTreeMap<Self::ResourceKey, (StateValueMetadata, u64, Arc<MoveTypeLayout>)>,
+        PanicError,
+    > {
+        unreachable!()
+    }
+
+    fn get_group_reads_needing_exchange(
+        &self,
+        _delayed_write_set_keys: &HashSet<Self::Identifier>,
+        _skip: &HashSet<Self::ResourceKey>,
+    ) -> PartialVMResult<BTreeMap<Self::ResourceKey, (StateValueMetadata, u64)>> {
+        unimplemented!()
     }
 }
 
 #[cfg(feature = "testing")]
 impl TableResolver for AptosBlankStorage {
-    fn resolve_table_entry(
+    fn resolve_table_entry_bytes_with_layout(
         &self,
         _handle: &TableHandle,
         _key: &[u8],
-    ) -> Result<Option<Bytes>, Error> {
+        _layout: Option<&MoveTypeLayout>,
+    ) -> PartialVMResult<Option<Bytes>> {
         Ok(None)
     }
 }
 
 #[cfg(feature = "testing")]
-static DUMMY_RESOLVER: Lazy<AptosBlankStorage> = Lazy::new(|| AptosBlankStorage);
+#[allow(clippy::redundant_closure)]
+static DUMMY_RESOLVER: Lazy<AptosBlankStorage> = Lazy::new(|| AptosBlankStorage::new());
 
 pub fn aptos_natives(
     gas_feature_version: u64,
@@ -81,25 +154,10 @@ pub fn aptos_natives(
         misc_gas_params,
         timed_features,
         features,
+        None,
     );
 
-    aptos_natives_with_builder(&mut builder)
-}
-
-pub fn aptos_natives_with_builder(builder: &mut SafeNativeBuilder) -> NativeFunctionTable {
-    #[allow(unreachable_code)]
-    aptos_move_stdlib::natives::all_natives(CORE_CODE_ADDRESS, builder)
-        .into_iter()
-        .filter(|(_, name, _, _)| name.as_str() != "vector")
-        .chain(aptos_framework::natives::all_natives(
-            CORE_CODE_ADDRESS,
-            builder,
-        ))
-        .chain(aptos_table_natives::table_natives(
-            CORE_CODE_ADDRESS,
-            builder,
-        ))
-        .collect()
+    aptos_natives_with_builder(&mut builder, false)
 }
 
 pub fn assert_no_test_natives(err_msg: &str) {
@@ -141,17 +199,29 @@ pub fn configure_for_unit_test() {
 
 #[cfg(feature = "testing")]
 fn unit_test_extensions_hook(exts: &mut NativeContextExtensions) {
+    use aptos_framework::natives::object::NativeObjectContext;
     use aptos_table_natives::NativeTableContext;
 
     exts.add(NativeTableContext::new([0u8; 32], &*DUMMY_RESOLVER));
-    exts.add(NativeCodeContext::default());
+    exts.add(NativeCodeContext::new());
     exts.add(NativeTransactionContext::new(
         vec![1],
         vec![1],
         ChainId::test().id(),
-    )); // We use the testing environment chain ID here
-    exts.add(NativeAggregatorContext::new([0; 32], &*DUMMY_RESOLVER));
+        None,
+    ));
+    exts.add(NativeAggregatorContext::new(
+        [0; 32],
+        &*DUMMY_RESOLVER,
+        false,
+        &*DUMMY_RESOLVER,
+    ));
     exts.add(NativeRistrettoPointContext::new());
     exts.add(AlgebraContext::new());
     exts.add(NativeEventContext::default());
+    exts.add(NativeObjectContext::default());
+
+    let mut randomness_ctx = RandomnessContext::new();
+    randomness_ctx.mark_unbiasable();
+    exts.add(randomness_ctx);
 }

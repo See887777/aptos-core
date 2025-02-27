@@ -13,6 +13,7 @@ use crate::{
     stackless_bytecode::{AssignKind, BorrowEdge, BorrowNode, Bytecode, IndexEdgeKind, Operation},
     stackless_control_flow_graph::StacklessControlFlowGraph,
 };
+use abstract_domain_derive::AbstractDomain;
 use itertools::Itertools;
 use move_binary_format::file_format::CodeOffset;
 use move_model::{
@@ -24,7 +25,7 @@ use move_model::{
 };
 use std::{borrow::BorrowMut, collections::BTreeMap, fmt};
 
-#[derive(Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Default)]
+#[derive(AbstractDomain, Debug, Clone, Eq, Ord, PartialEq, PartialOrd, Default)]
 pub struct BorrowInfo {
     /// Contains the nodes which are alive. This excludes nodes which are alive because
     /// other nodes which are alive borrow from them.
@@ -35,6 +36,7 @@ pub struct BorrowInfo {
 
     /// Backward borrow information. This field is not used during analysis, but computed once
     /// analysis is done.
+    #[no_join]
     borrows_from: MapDomain<BorrowNode, SetDomain<(BorrowNode, BorrowEdge)>>,
 }
 
@@ -56,6 +58,14 @@ impl BorrowInfo {
             .unwrap_or_default()
     }
 
+    /// Gets the children of this node with edges
+    fn get_children_with_edge(&self, node: &BorrowNode) -> Vec<(&BorrowNode, &BorrowEdge)> {
+        self.borrowed_by
+            .get(node)
+            .map(|s| s.iter().map(|(n, e)| (n, e)).collect_vec())
+            .unwrap_or_default()
+    }
+
     /// Gets the parents (together with the edges) of this node.
     fn get_incoming(&self, node: &BorrowNode) -> Vec<(&BorrowNode, &BorrowEdge)> {
         self.borrows_from
@@ -74,6 +84,13 @@ impl BorrowInfo {
                 .iter()
                 .any(|child| self.is_in_use(child))
         }
+    }
+
+    /// Checks whether `node` is being borrowed by at least one live node
+    pub fn has_borrow(&self, node: &BorrowNode) -> bool {
+        self.get_children(node)
+            .iter()
+            .any(|child| self.is_in_use(child))
     }
 
     /// Returns nodes which are dying from this to the next state. This includes those which
@@ -144,6 +161,44 @@ impl BorrowInfo {
             },
             BorrowNode::ReturnPlaceholder(..) => {
                 unreachable!("placeholder node type is not expected here");
+            },
+        }
+    }
+
+    /// Start from this node and follow-up the borrow chain until reaching a descendant that is not being borrowed.
+    /// After collecting possible paths (from this node to a live descendant) in the DFS order,
+    /// we need to reverse them so that `trees` will take the same form as `collect_dying_ancestor_trees_recursive`
+    pub fn collect_ancestor_trees_recursive_reverse(
+        &self,
+        node: &BorrowNode,
+        order: Vec<WriteBackAction>,
+        trees: &mut Vec<Vec<WriteBackAction>>,
+    ) {
+        match node {
+            BorrowNode::ReturnPlaceholder(..) => {
+                unreachable!("placeholder node type is not expected here");
+            },
+            _ => {
+                let outgoing = self.get_children_with_edge(node);
+                if outgoing.is_empty() {
+                    let mut order = order;
+                    order.reverse();
+                    trees.push(order);
+                } else {
+                    for (child, edge) in outgoing {
+                        if let BorrowNode::Reference(temp_index) = child {
+                            let mut appended = order.clone();
+                            appended.push(WriteBackAction {
+                                src: *temp_index,
+                                dst: node.clone(),
+                                edge: edge.clone(),
+                            });
+                            self.collect_ancestor_trees_recursive_reverse(child, appended, trees);
+                        } else {
+                            unreachable!("node must be reference");
+                        }
+                    }
+                }
             },
         }
     }
@@ -569,13 +624,14 @@ impl<'a> BorrowAnalysis<'a> {
         let state_map = self.analyze_function(state, instrs, &cfg);
 
         // Summarize the result
-        let code_map = self.state_per_instruction(state_map, instrs, &cfg, |before, after| {
-            let mut before = before.clone();
-            let mut after = after.clone();
-            before.consolidate();
-            after.consolidate();
-            BorrowInfoAtCodeOffset { before, after }
-        });
+        let code_map =
+            self.state_per_instruction_with_default(state_map, instrs, &cfg, |before, after| {
+                let mut before = before.clone();
+                let mut after = after.clone();
+                before.consolidate();
+                after.consolidate();
+                BorrowInfoAtCodeOffset { before, after }
+            });
         let mut summary = BorrowInfo::default();
         for (offs, code) in instrs.iter().enumerate() {
             if let Bytecode::Ret(_, temps) = code {
@@ -617,16 +673,18 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
 
                 let src_node = self.borrow_node(*src);
                 match kind {
-                    AssignKind::Move => {
-                        assert!(!self.func_target.get_local_type(*src).is_reference());
-                        assert!(!self.func_target.get_local_type(*dest).is_reference());
-                        state.del_node(&src_node);
+                    AssignKind::Move | AssignKind::Inferred => {
+                        if self.func_target.get_local_type(*src).is_mutable_reference() {
+                            assert!(self
+                                .func_target
+                                .get_local_type(*dest)
+                                .is_mutable_reference());
+                            state.add_edge(src_node, dest_node, BorrowEdge::Direct);
+                        } else {
+                            state.del_node(&src_node)
+                        }
                     },
-                    AssignKind::Copy => {
-                        assert!(!self.func_target.get_local_type(*src).is_reference());
-                        assert!(!self.func_target.get_local_type(*dest).is_reference());
-                    },
-                    AssignKind::Store => {
+                    AssignKind::Copy | AssignKind::Store => {
                         if self.func_target.get_local_type(*src).is_mutable_reference() {
                             assert!(self
                                 .func_target
@@ -671,7 +729,27 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
                         state.add_edge(
                             src_node,
                             dest_node,
-                            BorrowEdge::Field(mid.qualified_inst(*sid, inst.to_owned()), *field),
+                            BorrowEdge::Field(
+                                mid.qualified_inst(*sid, inst.to_owned()),
+                                None,
+                                *field,
+                            ),
+                        );
+                    },
+                    BorrowVariantField(mid, sid, variants, inst, field)
+                        if livevar_annotation_at.after.contains(&dests[0]) =>
+                    {
+                        let dest_node = self.borrow_node(dests[0]);
+                        let src_node = self.borrow_node(srcs[0]);
+                        state.add_node(dest_node.clone());
+                        state.add_edge(
+                            src_node,
+                            dest_node,
+                            BorrowEdge::Field(
+                                mid.qualified_inst(*sid, inst.to_owned()),
+                                Some(variants.clone()),
+                                *field,
+                            ),
                         );
                     },
                     Function(mid, fid, targs) => {
@@ -741,14 +819,6 @@ impl<'a> TransferFunctions for BorrowAnalysis<'a> {
 }
 
 impl<'a> DataflowAnalysis for BorrowAnalysis<'a> {}
-
-impl AbstractDomain for BorrowInfo {
-    fn join(&mut self, other: &Self) -> JoinResult {
-        let live_changed = self.live_nodes.join(&other.live_nodes);
-        let borrowed_changed = self.borrowed_by.join(&other.borrowed_by);
-        borrowed_changed.combine(live_changed)
-    }
-}
 
 // =================================================================================================
 // Formatting

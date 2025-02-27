@@ -1,11 +1,5 @@
 
 Diagnostics:
-bug: unresolved spec anchor
-   ┌─ tests/checking/typing/constant_unsupported_exps.move:17:9
-   │
-17 │         spec { };
-   │         ^^^^^^^^
-
 error: no function named `f_script` found
    ┌─ tests/checking/typing/constant_unsupported_exps.move:21:9
    │
@@ -36,33 +30,121 @@ error: no function named `X::f_private` found
 27 │         0x42::X::f_private();
    │         ^^^^^^^^^^^^^^^^^^^^
 
-error: invalid call of `move_to`: expected `&signer` but found `signer` for argument 1
+error: cannot use `signer` with an operator which expects a value of type `&signer`
    ┌─ tests/checking/typing/constant_unsupported_exps.move:30:17
    │
 30 │         move_to(s, R{});
    │                 ^
 
-error: The type argument to `exists` and `global` must be a struct type but `?26` is not
-   ┌─ tests/checking/typing/constant_unsupported_exps.move:31:15
-   │
-31 │         R{} = move_from(@0x42);
-   │               ^^^^^^^^^^^^^^^^
-
-error: expected `()` but found `integer`
+error: cannot return `integer` from a function which returns nothing
    ┌─ tests/checking/typing/constant_unsupported_exps.move:39:16
    │
 39 │         return 0;
    │                ^
 
-error: not a valid constant expression
+error: Not a valid constant expression.
    ┌─ tests/checking/typing/constant_unsupported_exps.move:13:20
    │
-13 │       const C: u64 = {
-   │ ╭────────────────────^
-14 │ │         let x = 0;
-15 │ │         let s: signer = abort 0;
-16 │ │         let b = B { f: 0 };
-   · │
-46 │ │         0
-47 │ │     };
-   │ ╰─────^
+13 │             const C: u64 = {
+   │ ╭──────────────────────────^
+   │ │ ╭────────────────────────'
+   │ │ │ ╭──────────────────────'
+   │ │ │ │ ╭────────────────────'
+14 │ │ │ │ │         let x = 0;
+15 │ │ │ │ │         let s: signer = abort 0;
+   │ │ │ │ │                         ------- Invalid call or operation in constant
+16 │ │ │ │ │         let b = B { f: 0 };
+   │ │ │ │ │                 ---------- Invalid call or operation in constant
+17 │ │ │ │ │         spec { };
+   │ │ │ │ │         -------- Invalid call or operation in constant
+18 │ │ │ │ │         &x;
+   │ │ │ │ │         --
+   │ │ │ │ │         ││
+   │ │ │ │ │         │Invalid statement or expression in constant
+   │ │ │ │ │         Invalid call or operation in constant
+19 │ │ │ │ │         &mut x;
+   │ │ │ │ │         ------
+   │ │ │ │ │         │    │
+   │ │ │ │ │         │    Invalid statement or expression in constant
+   │ │ │ │ │         Invalid call or operation in constant
+20 │ │ │ │ │         f_public();
+   │ │ │ │ │         ---------- Invalid call or operation in constant
+21 │ │ │ │ │         f_script();
+22 │ │ │ │ │         f_friend();
+   │ │ │ │ │         ---------- Invalid call or operation in constant
+23 │ │ │ │ │         f_private();
+   │ │ │ │ │         ----------- Invalid call or operation in constant
+   · │ │ │ │
+28 │ │ │ │ │         borrow_global<R>(@0x42);
+   │ │ │ │ │         ----------------------- Invalid call or operation in constant
+29 │ │ │ │ │         borrow_global_mut<R>(@0x42);
+   │ │ │ │ │         --------------------------- Invalid call or operation in constant
+30 │ │ │ │ │         move_to(s, R{});
+31 │ │ │ │ │         R{} = move_from(@0x42);
+   │ │ │ │ │         ----------------------
+   │ │ │ │ │         │     │
+   │ │ │ │ │         │     Invalid call or operation in constant
+   │ │ │ │ │         Invalid statement or expression in constant
+32 │ │ │ │ │         freeze(&mut x);
+   │ │ │ │ │         --------------
+   │ │ │ │ │         │      │    │
+   │ │ │ │ │         │      │    Invalid statement or expression in constant
+   │ │ │ │ │         │      Invalid call or operation in constant
+   │ │ │ │ │         Invalid call or operation in constant
+33 │ │ │ │ │         assert!(true, 42);
+   │ │ │ │ │         ------
+   │ │ │ │ │         │
+   │ │ │ │ │         Invalid statement or expression in constant
+   │ │ │ │ │         Invalid call or operation in constant
+34 │ │ │ │ │         if (true) 0 else 1;
+   │ │ │ │ │         ------------------ Invalid statement or expression in constant
+35 │ │ │ │ │         loop ();
+   │ │ │ │ │         ------- Invalid statement or expression in constant
+36 │ │ │ │ │         loop { break; continue; };
+   │ │ │ │ │         -------------------------
+   │ │ │ │ │         │      │      │
+   │ │ │ │ │         │      │      Invalid statement or expression in constant
+   │ │ │ │ │         │      Invalid statement or expression in constant
+   │ │ │ │ │         Invalid statement or expression in constant
+37 │ │ │ │ │         while (true) ();
+   │ │ │ │ │         ---------------
+   │ │ │ │ │         │
+   │ │ │ │ │         Invalid statement or expression in constant
+   │ │ │ │ │         Invalid statement or expression in constant
+   │ │ │ │ │         Invalid statement or expression in constant
+38 │ │ │ │ │         x = 1;
+   │ │ │ │ │         ----- Invalid statement or expression in constant
+39 │ │ │ │ │         return 0;
+   │ │ │ │ │         -------- Invalid statement or expression in constant
+40 │ │ │ │ │         abort 0;
+   │ │ │ │ │         ------- Invalid call or operation in constant
+41 │ │ │ │ │         *(&mut 0) = 0;
+   │ │ │ │ │         -------------
+   │ │ │ │ │         ││
+   │ │ │ │ │         │Invalid call or operation in constant
+   │ │ │ │ │         Invalid statement or expression in constant
+42 │ │ │ │ │         b.f = 0;
+   │ │ │ │ │         -------
+   │ │ │ │ │         │
+   │ │ │ │ │         Invalid statement or expression in constant
+   │ │ │ │ │         Invalid call or operation in constant
+   │ │ │ │ │         Invalid statement or expression in constant
+43 │ │ │ │ │         b.f;
+   │ │ │ │ │         ---
+   │ │ │ │ │         │
+   │ │ │ │ │         Invalid call or operation in constant
+   │ │ │ │ │         Invalid statement or expression in constant
+44 │ │ │ │ │         *&b.f;
+   │ │ │ │ │         -----
+   │ │ │ │ │         │││
+   │ │ │ │ │         ││Invalid call or operation in constant
+   │ │ │ │ │         ││Invalid statement or expression in constant
+   │ │ │ │ │         │Invalid call or operation in constant
+   │ │ │ │ │         Invalid call or operation in constant
+45 │ │ │ │ │         FLAG;
+46 │ │ │ │ │         0
+47 │ │ │ │ │     };
+   │ ╰─│─│─│─────^
+   │   ╰─│─│─────' Invalid statement or expression in constant
+   │     ╰─│─────' Invalid statement or expression in constant
+   │       ╰─────' Invalid statement or expression in constant

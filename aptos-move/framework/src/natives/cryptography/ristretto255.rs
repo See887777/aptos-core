@@ -5,8 +5,8 @@ use crate::natives::cryptography::{ristretto255_point, ristretto255_scalar};
 use aptos_gas_algebra::GasExpression;
 use aptos_gas_schedule::{gas_params::natives::aptos_framework::*, NativeGasParameters};
 use aptos_native_interface::{
-    safely_assert_eq, safely_pop_arg, RawSafeNative, SafeNativeBuilder, SafeNativeError,
-    SafeNativeResult,
+    safely_assert_eq, safely_pop_arg, safely_pop_vec_arg, RawSafeNative, SafeNativeBuilder,
+    SafeNativeError, SafeNativeResult,
 };
 use aptos_types::vm_status::StatusCode;
 use curve25519_dalek::scalar::Scalar;
@@ -24,7 +24,7 @@ pub(crate) const COMPRESSED_POINT_NUM_BYTES: usize = 32;
 
 /// Returns gas costs for a variable-time multiscalar multiplication (MSM) of size-n. The MSM
 /// employed in curve25519 is:
-///  1. Strauss, when n <= 190, see https://www.jstor.org/stable/2310929
+///  1. Strauss, when n <= 190, see <https://www.jstor.org/stable/2310929>
 ///  2. Pippinger, when n > 190, which roughly requires O(n / log_2 n) scalar multiplications
 /// For simplicity, we estimate the complexity as O(n / log_2 n)
 pub fn multi_scalar_mul_gas(
@@ -172,6 +172,16 @@ pub fn pop_scalar_from_bytes(arguments: &mut VecDeque<Value>) -> SafeNativeResul
     let bytes = safely_pop_arg!(arguments, Vec<u8>);
 
     scalar_from_valid_bytes(bytes)
+}
+
+/// Pops a Scalars off the argument stack when the argument was a `vector<vector<u8>>`.
+pub fn pop_scalars_from_bytes(arguments: &mut VecDeque<Value>) -> SafeNativeResult<Vec<Scalar>> {
+    let bytes = safely_pop_vec_arg!(arguments, Vec<u8>);
+
+    bytes
+        .into_iter()
+        .map(scalar_from_valid_bytes)
+        .collect::<SafeNativeResult<Vec<_>>>()
 }
 
 /// The 'data' field inside a Move Scalar struct is at index 0.

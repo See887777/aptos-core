@@ -1,16 +1,16 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
-use super::{health_checker::HealthChecker, traits::ServiceManager, RunLocalTestnet};
+use super::{health_checker::HealthChecker, traits::ServiceManager, RunLocalnet};
 use anyhow::Result;
 use aptos_faucet_core::server::{FunderKeyEnum, RunConfig};
 use async_trait::async_trait;
 use clap::Parser;
 use maplit::hashset;
 use reqwest::Url;
-use std::{collections::HashSet, path::PathBuf};
+use std::{collections::HashSet, net::Ipv4Addr, path::PathBuf};
 
-/// Args related to running a faucet in the local testnet.
+/// Args related to running a faucet in the localnet.
 #[derive(Debug, Parser)]
 pub struct FaucetArgs {
     /// Do not run a faucet alongside the node.
@@ -40,20 +40,22 @@ pub struct FaucetArgs {
 
 #[derive(Clone, Debug)]
 pub struct FaucetManager {
-    config: RunConfig,
-    prerequisite_health_checkers: HashSet<HealthChecker>,
+    pub config: RunConfig,
+    pub prerequisite_health_checkers: HashSet<HealthChecker>,
 }
 
 impl FaucetManager {
     pub fn new(
-        args: &RunLocalTestnet,
+        args: &RunLocalnet,
         prerequisite_health_checkers: HashSet<HealthChecker>,
+        bind_to: Ipv4Addr,
         test_dir: PathBuf,
         node_api_url: Url,
     ) -> Result<Self> {
         Ok(Self {
             config: RunConfig::build_for_cli(
                 node_api_url.clone(),
+                bind_to.to_string(),
                 args.faucet_args.faucet_port,
                 FunderKeyEnum::KeyFile(test_dir.join("mint.key")),
                 args.faucet_args.do_not_delegate,
@@ -70,7 +72,7 @@ impl ServiceManager for FaucetManager {
         "Faucet".to_string()
     }
 
-    fn get_healthchecks(&self) -> HashSet<HealthChecker> {
+    fn get_health_checkers(&self) -> HashSet<HealthChecker> {
         hashset! {HealthChecker::http_checker_from_port(
             self.config.server_config.listen_port,
             self.get_name(),

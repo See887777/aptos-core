@@ -2,23 +2,39 @@
 // Parts of the project are originally copyright © Meta Platforms, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
-use crate::types::{Flag, Incarnation, MVDataError, MVDataOutput, ShiftedTxnIndex, TxnIndex};
+use crate::types::{
+    Incarnation, MVDataError, MVDataOutput, ShiftedTxnIndex, TxnIndex, ValueWithLayout,
+};
 use anyhow::Result;
 use aptos_aggregator::delta_change_set::DeltaOp;
 use aptos_types::write_set::TransactionWrite;
 use claims::assert_some;
 use crossbeam::utils::CachePadded;
 use dashmap::DashMap;
-use std::{collections::btree_map::BTreeMap, fmt::Debug, hash::Hash, sync::Arc};
+use move_core_types::value::MoveTypeLayout;
+use std::{
+    collections::btree_map::{self, BTreeMap},
+    fmt::Debug,
+    hash::Hash,
+    sync::{
+        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc,
+    },
+};
+
+pub(crate) const FLAG_DONE: bool = false;
+pub(crate) const FLAG_ESTIMATE: bool = true;
 
 /// Every entry in shared multi-version data-structure has an "estimate" flag
 /// and some content.
-struct Entry<V> {
+/// TODO: can remove pub(crate) once aggregator V1 is deprecated.
+pub(crate) struct Entry<V> {
     /// Actual contents.
-    cell: EntryCell<V>,
+    pub(crate) value: V,
 
-    /// Used to mark the entry as a "write estimate".
-    flag: Flag,
+    /// Used to mark the entry as a "write estimate". Stored as an atomic so
+    /// marking an estimate can proceed w. read lock.
+    flag: AtomicBool,
 }
 
 /// Represents the content of a single entry in multi-version data-structure.
@@ -27,7 +43,7 @@ enum EntryCell<V> {
     /// has: 1) Incarnation number of the transaction that wrote the entry (note
     /// that TxnIndex is part of the key and not recorded here), 2) actual data
     /// stored in a shared pointer (to ensure ownership and avoid clones).
-    Write(Incarnation, Arc<V>),
+    Write(Incarnation, ValueWithLayout<V>),
 
     /// Recorded in the shared multi-version data-structure for each delta.
     /// Option<u128> is a shortcut to aggregated value (to avoid traversing down
@@ -38,44 +54,48 @@ enum EntryCell<V> {
 /// A versioned value internally is represented as a BTreeMap from indices of
 /// transactions that update the given access path & the corresponding entries.
 struct VersionedValue<V> {
-    versioned_map: BTreeMap<ShiftedTxnIndex, CachePadded<Entry<V>>>,
+    versioned_map: BTreeMap<ShiftedTxnIndex, CachePadded<Entry<EntryCell<V>>>>,
 }
 
 /// Maps each key (access path) to an internal versioned value representation.
 pub struct VersionedData<K, V> {
     values: DashMap<K, VersionedValue<V>>,
+    total_base_value_size: AtomicU64,
+}
+
+fn new_write_entry<V>(incarnation: Incarnation, value: ValueWithLayout<V>) -> Entry<EntryCell<V>> {
+    Entry::new(EntryCell::Write(incarnation, value))
+}
+
+fn new_delta_entry<V>(data: DeltaOp) -> Entry<EntryCell<V>> {
+    Entry::new(EntryCell::Delta(data, None))
 }
 
 impl<V> Entry<V> {
-    fn new_write_from(incarnation: Incarnation, data: V) -> Entry<V> {
+    pub(crate) fn new(value: V) -> Entry<V> {
         Entry {
-            cell: EntryCell::Write(incarnation, Arc::new(data)),
-            flag: Flag::Done,
+            value,
+            flag: AtomicBool::new(FLAG_DONE),
         }
     }
 
-    fn new_delta_from(data: DeltaOp) -> Entry<V> {
-        Entry {
-            cell: EntryCell::Delta(data, None),
-            flag: Flag::Done,
-        }
+    pub(crate) fn is_estimate(&self) -> bool {
+        self.flag.load(Ordering::Relaxed) == FLAG_ESTIMATE
     }
 
-    fn flag(&self) -> Flag {
-        self.flag
+    pub(crate) fn mark_estimate(&self) {
+        self.flag.store(FLAG_ESTIMATE, Ordering::Relaxed);
     }
+}
 
-    fn mark_estimate(&mut self) {
-        self.flag = Flag::Estimate;
-    }
-
+impl<V> Entry<EntryCell<V>> {
     // The entry must be a delta, will record the provided value as a base value
     // shortcut (the value in storage before block execution). If a value was already
     // recorded, the new value is asserted for equality.
     fn record_delta_shortcut(&mut self, value: u128) {
         use crate::versioned_data::EntryCell::Delta;
 
-        self.cell = match self.cell {
+        self.value = match self.value {
             Delta(delta_op, maybe_shortcut) => {
                 if let Some(prev_value) = maybe_shortcut {
                     assert_eq!(value, prev_value, "Recording different shortcuts");
@@ -102,21 +122,21 @@ impl<V: TransactionWrite> VersionedValue<V> {
 
         let mut iter = self
             .versioned_map
-            .range(ShiftedTxnIndex::zero()..ShiftedTxnIndex::new(txn_idx));
+            .range(ShiftedTxnIndex::zero_idx()..ShiftedTxnIndex::new(txn_idx));
 
         // If read encounters a delta, it must traverse the block of transactions
         // (top-down) until it encounters a write or reaches the end of the block.
         // During traversal, all aggregator deltas have to be accumulated together.
         let mut accumulator: Option<Result<DeltaOp, ()>> = None;
         while let Some((idx, entry)) = iter.next_back() {
-            if entry.flag() == Flag::Estimate {
+            if entry.is_estimate() {
                 // Found a dependency.
                 return Err(Dependency(
                     idx.idx().expect("May not depend on storage version"),
                 ));
             }
 
-            match (&entry.cell, accumulator.as_mut()) {
+            match (&entry.value, accumulator.as_mut()) {
                 (EntryCell::Write(incarnation, data), None) => {
                     // Resolve to the write if no deltas were applied in between.
                     return Ok(Versioned(
@@ -127,7 +147,8 @@ impl<V: TransactionWrite> VersionedValue<V> {
                 (EntryCell::Write(incarnation, data), Some(accumulator)) => {
                     // Deltas were applied. We must deserialize the value
                     // of the write and apply the aggregated delta accumulator.
-                    return match data
+                    let value = data.extract_value_no_layout();
+                    return match value
                         .as_u128()
                         .expect("Aggregator value must deserialize to u128")
                     {
@@ -147,7 +168,7 @@ impl<V: TransactionWrite> VersionedValue<V> {
                                 .and_then(|a| {
                                     // Apply accumulated delta to resolve the aggregator value.
                                     a.apply_to(value)
-                                        .map(|result| Resolved(result))
+                                        .map(Resolved)
                                         .map_err(|_| DeltaApplicationFailure)
                                 })
                         },
@@ -160,7 +181,7 @@ impl<V: TransactionWrite> VersionedValue<V> {
                             .and_then(|a| {
                                 // Apply accumulated delta to resolve the aggregator value.
                                 a.apply_to(*shortcut_value)
-                                    .map(|result| Resolved(result))
+                                    .map(Resolved)
                                     .map_err(|_| DeltaApplicationFailure)
                             });
                     }
@@ -201,33 +222,42 @@ impl<V: TransactionWrite> VersionedValue<V> {
 }
 
 impl<K: Hash + Clone + Debug + Eq, V: TransactionWrite> VersionedData<K, V> {
-    pub(crate) fn new() -> Self {
+    pub(crate) fn empty() -> Self {
         Self {
             values: DashMap::new(),
+            total_base_value_size: AtomicU64::new(0),
         }
+    }
+
+    pub(crate) fn num_keys(&self) -> usize {
+        self.values.len()
+    }
+
+    pub(crate) fn total_base_value_size(&self) -> u64 {
+        self.total_base_value_size.load(Ordering::Relaxed)
     }
 
     pub fn add_delta(&self, key: K, txn_idx: TxnIndex, delta: DeltaOp) {
         let mut v = self.values.entry(key).or_default();
         v.versioned_map.insert(
             ShiftedTxnIndex::new(txn_idx),
-            CachePadded::new(Entry::new_delta_from(delta)),
+            CachePadded::new(new_delta_entry(delta)),
         );
     }
 
     /// Mark an entry from transaction 'txn_idx' at access path 'key' as an estimated write
     /// (for future incarnation). Will panic if the entry is not in the data-structure.
     pub fn mark_estimate(&self, key: &K, txn_idx: TxnIndex) {
-        let mut v = self.values.get_mut(key).expect("Path must exist");
+        let v = self.values.get(key).expect("Path must exist");
         v.versioned_map
-            .get_mut(&ShiftedTxnIndex::new(txn_idx))
+            .get(&ShiftedTxnIndex::new(txn_idx))
             .expect("Entry by the txn must exist to mark estimate")
             .mark_estimate();
     }
 
     /// Delete an entry from transaction 'txn_idx' at access path 'key'. Will panic
     /// if the corresponding entry does not exist.
-    pub fn delete(&self, key: &K, txn_idx: TxnIndex) {
+    pub fn remove(&self, key: &K, txn_idx: TxnIndex) {
         // TODO: investigate logical deletion.
         let mut v = self.values.get_mut(key).expect("Path must exist");
         assert_some!(
@@ -247,43 +277,130 @@ impl<K: Hash + Clone + Debug + Eq, V: TransactionWrite> VersionedData<K, V> {
             .unwrap_or(Err(MVDataError::Uninitialized))
     }
 
-    pub fn provide_base_value(&self, key: K, data: V) {
+    pub fn fetch_exchanged_data(
+        &self,
+        key: &K,
+        txn_idx: TxnIndex,
+    ) -> Option<(Arc<V>, Arc<MoveTypeLayout>)> {
+        if let Ok(MVDataOutput::Versioned(_, ValueWithLayout::Exchanged(value, Some(layout)))) =
+            self.fetch_data(key, txn_idx)
+        {
+            Some((value, layout))
+        } else {
+            None
+        }
+    }
+
+    pub fn set_base_value(&self, key: K, value: ValueWithLayout<V>) {
         let mut v = self.values.entry(key).or_default();
-        let bytes_len = data.bytes_len();
-        // For base value, incarnation is irrelevant, set to 0.
+        // For base value, incarnation is irrelevant, and is always set to 0.
+
+        use btree_map::Entry::*;
+        use ValueWithLayout::*;
+        match v.versioned_map.entry(ShiftedTxnIndex::zero_idx()) {
+            Vacant(v) => {
+                if let Some(base_size) = value.bytes_len() {
+                    self.total_base_value_size
+                        .fetch_add(base_size as u64, Ordering::Relaxed);
+                }
+                v.insert(CachePadded::new(new_write_entry(0, value)));
+            },
+            Occupied(mut o) => {
+                if let EntryCell::Write(i, existing_value) = &o.get().value {
+                    assert!(*i == 0);
+                    match (existing_value, &value) {
+                        (RawFromStorage(ev), RawFromStorage(v)) => {
+                            // Base value from storage needs to be identical
+                            // Assert the length of bytes for efficiency (instead of full equality)
+                            assert!(v.bytes().map(|b| b.len()) == ev.bytes().map(|b| b.len()))
+                        },
+                        (Exchanged(_, _), RawFromStorage(_)) => {
+                            // Stored value contains more info, nothing to do.
+                        },
+                        (RawFromStorage(_), Exchanged(_, _)) => {
+                            // Received more info, update.
+                            o.insert(CachePadded::new(new_write_entry(0, value)));
+                        },
+                        (Exchanged(ev, e_layout), Exchanged(v, layout)) => {
+                            // base value may have already been provided by another transaction
+                            // executed simultaneously and asking for the same resource.
+                            // Value from storage must be identical, but then delayed field
+                            // identifier exchange could've modified it.
+                            //
+                            // If maybe_layout is None, they are required to be identical
+                            // If maybe_layout is Some, there might have been an exchange
+                            // Assert the length of bytes for efficiency (instead of full equality)
+                            assert_eq!(e_layout.is_some(), layout.is_some());
+                            if layout.is_none() {
+                                assert_eq!(v.bytes().map(|b| b.len()), ev.bytes().map(|b| b.len()));
+                            }
+                        },
+                    }
+                }
+            },
+        };
+    }
+
+    /// Versioned write of data at a given key (and version).
+    pub fn write(
+        &self,
+        key: K,
+        txn_idx: TxnIndex,
+        incarnation: Incarnation,
+        data: Arc<V>,
+        maybe_layout: Option<Arc<MoveTypeLayout>>,
+    ) {
+        let mut v = self.values.entry(key).or_default();
         let prev_entry = v.versioned_map.insert(
-            ShiftedTxnIndex::zero(),
-            CachePadded::new(Entry::new_write_from(0, data)),
+            ShiftedTxnIndex::new(txn_idx),
+            CachePadded::new(new_write_entry(
+                incarnation,
+                ValueWithLayout::Exchanged(data, maybe_layout),
+            )),
         );
 
+        // Assert that the previous entry for txn_idx, if present, had lower incarnation.
         assert!(prev_entry.map_or(true, |entry| -> bool {
-            if let EntryCell::Write(i, v) = &entry.cell {
-                // base value may have already been provided due to a concurrency race,
-                // but it has to be the same as being set.
-                // Assert the length of bytes for efficiency (instead of full equality)
-                *i == 0 && v.bytes_len() == bytes_len
+            if let EntryCell::Write(i, _) = entry.value {
+                i < incarnation
             } else {
                 true
             }
         }));
     }
 
-    /// Versioned write of data at a given key (and version).
-    pub fn write(&self, key: K, txn_idx: TxnIndex, incarnation: Incarnation, data: V) {
+    /// Versioned write of metadata at a given resource group key (and version). Returns true
+    /// if the previously stored metadata has changed as observed by later transactions (e.g.
+    /// metadata of a deletion can never be observed by later transactions).
+    pub fn write_metadata(
+        &self,
+        key: K,
+        txn_idx: TxnIndex,
+        incarnation: Incarnation,
+        data: V,
+    ) -> bool {
+        let arc_data = Arc::new(data);
+
         let mut v = self.values.entry(key).or_default();
         let prev_entry = v.versioned_map.insert(
             ShiftedTxnIndex::new(txn_idx),
-            CachePadded::new(Entry::new_write_from(incarnation, data)),
+            CachePadded::new(new_write_entry(
+                incarnation,
+                ValueWithLayout::Exchanged(arc_data.clone(), None),
+            )),
         );
 
-        // Assert that the previous entry for txn_idx, if present, had lower incarnation.
-        assert!(prev_entry.map_or(true, |entry| -> bool {
-            if let EntryCell::Write(i, _) = entry.cell {
-                i < incarnation
+        // Changes versioned metadata that was stored.
+        prev_entry.map_or(true, |entry| -> bool {
+            if let EntryCell::Write(_, existing_v) = &entry.value {
+                arc_data.as_state_value_metadata()
+                    != existing_v
+                        .extract_value_no_layout()
+                        .as_state_value_metadata()
             } else {
-                true
+                unreachable!("Group metadata can't be written at AggregatorV1 key");
             }
-        }));
+        })
     }
 
     /// When a transaction is committed, this method can be called for its delta outputs to add

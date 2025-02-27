@@ -1,12 +1,13 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use super::internal_indexer_db_config::InternalIndexerDBConfig;
 use crate::config::{
     node_config_loader::NodeType,
     utils::{are_failpoints_enabled, get_config_name},
-    ApiConfig, BaseConfig, ConsensusConfig, Error, ExecutionConfig, IndexerGrpcConfig,
-    InspectionServiceConfig, LoggerConfig, MempoolConfig, NodeConfig, PeerMonitoringServiceConfig,
-    StateSyncConfig, StorageConfig,
+    AdminServiceConfig, ApiConfig, BaseConfig, ConsensusConfig, DagConsensusConfig, Error,
+    ExecutionConfig, IndexerGrpcConfig, InspectionServiceConfig, LoggerConfig, MempoolConfig,
+    NetbenchConfig, NodeConfig, StateSyncConfig, StorageConfig,
 };
 use aptos_types::chain_id::ChainId;
 use std::collections::HashSet;
@@ -29,7 +30,7 @@ pub trait ConfigSanitizer {
     fn sanitize(
         _node_config: &NodeConfig,
         _node_type: NodeType,
-        _chain_id: ChainId,
+        _chain_id: Option<ChainId>,
     ) -> Result<(), Error> {
         unimplemented!("sanitize() must be implemented for each sanitizer!");
     }
@@ -39,12 +40,19 @@ impl ConfigSanitizer for NodeConfig {
     fn sanitize(
         node_config: &NodeConfig,
         node_type: NodeType,
-        chain_id: ChainId,
+        chain_id: Option<ChainId>,
     ) -> Result<(), Error> {
+        // If config sanitization is disabled, don't do anything!
+        if node_config.node_startup.skip_config_sanitizer {
+            return Ok(());
+        }
+
         // Sanitize all of the sub-configs
+        AdminServiceConfig::sanitize(node_config, node_type, chain_id)?;
         ApiConfig::sanitize(node_config, node_type, chain_id)?;
         BaseConfig::sanitize(node_config, node_type, chain_id)?;
         ConsensusConfig::sanitize(node_config, node_type, chain_id)?;
+        DagConsensusConfig::sanitize(node_config, node_type, chain_id)?;
         ExecutionConfig::sanitize(node_config, node_type, chain_id)?;
         sanitize_failpoints_config(node_config, node_type, chain_id)?;
         sanitize_fullnode_network_configs(node_config, node_type, chain_id)?;
@@ -52,9 +60,10 @@ impl ConfigSanitizer for NodeConfig {
         InspectionServiceConfig::sanitize(node_config, node_type, chain_id)?;
         LoggerConfig::sanitize(node_config, node_type, chain_id)?;
         MempoolConfig::sanitize(node_config, node_type, chain_id)?;
-        PeerMonitoringServiceConfig::sanitize(node_config, node_type, chain_id)?;
+        NetbenchConfig::sanitize(node_config, node_type, chain_id)?;
         StateSyncConfig::sanitize(node_config, node_type, chain_id)?;
         StorageConfig::sanitize(node_config, node_type, chain_id)?;
+        InternalIndexerDBConfig::sanitize(node_config, node_type, chain_id)?;
         sanitize_validator_network_config(node_config, node_type, chain_id)?;
 
         Ok(()) // All configs passed validation
@@ -65,18 +74,20 @@ impl ConfigSanitizer for NodeConfig {
 fn sanitize_failpoints_config(
     node_config: &NodeConfig,
     _node_type: NodeType,
-    chain_id: ChainId,
+    chain_id: Option<ChainId>,
 ) -> Result<(), Error> {
     let sanitizer_name = FAILPOINTS_SANITIZER_NAME.to_string();
     let failpoints = &node_config.failpoints;
 
     // Verify that failpoints are not enabled in mainnet
     let failpoints_enabled = are_failpoints_enabled();
-    if chain_id.is_mainnet() && failpoints_enabled {
-        return Err(Error::ConfigSanitizerFailed(
-            sanitizer_name,
-            "Failpoints are not supported on mainnet nodes!".into(),
-        ));
+    if let Some(chain_id) = chain_id {
+        if chain_id.is_mainnet() && failpoints_enabled {
+            return Err(Error::ConfigSanitizerFailed(
+                sanitizer_name,
+                "Failpoints are not supported on mainnet nodes!".into(),
+            ));
+        }
     }
 
     // Ensure that the failpoints config is populated appropriately
@@ -101,7 +112,7 @@ fn sanitize_failpoints_config(
 fn sanitize_fullnode_network_configs(
     node_config: &NodeConfig,
     node_type: NodeType,
-    _chain_id: ChainId,
+    _chain_id: Option<ChainId>,
 ) -> Result<(), Error> {
     let sanitizer_name = FULLNODE_NETWORKS_SANITIZER_NAME.to_string();
     let fullnode_networks = &node_config.full_node_networks;
@@ -146,7 +157,7 @@ fn sanitize_fullnode_network_configs(
 fn sanitize_validator_network_config(
     node_config: &NodeConfig,
     node_type: NodeType,
-    _chain_id: ChainId,
+    _chain_id: Option<ChainId>,
 ) -> Result<(), Error> {
     let sanitizer_name = VALIDATOR_NETWORK_SANITIZER_NAME.to_string();
     let validator_network = &node_config.validator_network;
@@ -192,7 +203,40 @@ fn sanitize_validator_network_config(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{config::NetworkConfig, network_id::NetworkId};
+    use crate::{
+        config::{node_startup_config::NodeStartupConfig, NetworkConfig},
+        network_id::NetworkId,
+    };
+
+    #[test]
+    fn test_disable_config_sanitizer() {
+        // Create a default node config (with sanitization enabled)
+        let mut node_config = NodeConfig::default();
+
+        // Set a bad node config for mainnet
+        node_config.execution.paranoid_hot_potato_verification = false;
+
+        // Sanitize the config and verify the sanitizer fails
+        let error =
+            NodeConfig::sanitize(&node_config, NodeType::Validator, Some(ChainId::mainnet()))
+                .unwrap_err();
+        assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
+
+        // Create a node config with the sanitizer disabled
+        let mut node_config = NodeConfig {
+            node_startup: NodeStartupConfig {
+                skip_config_sanitizer: true,
+                ..Default::default()
+            },
+            ..Default::default()
+        };
+
+        // Set a bad node config for mainnet
+        node_config.execution.paranoid_hot_potato_verification = false;
+
+        // Sanitize the config and verify the sanitizer passes
+        NodeConfig::sanitize(&node_config, NodeType::Validator, Some(ChainId::mainnet())).unwrap();
+    }
 
     #[test]
     fn test_sanitize_missing_pfn_network_configs() {
@@ -206,7 +250,7 @@ mod tests {
         let error = sanitize_fullnode_network_configs(
             &node_config,
             NodeType::PublicFullnode,
-            ChainId::mainnet(),
+            Some(ChainId::mainnet()),
         )
         .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
@@ -224,7 +268,7 @@ mod tests {
         let error = sanitize_fullnode_network_configs(
             &node_config,
             NodeType::ValidatorFullnode,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
@@ -245,7 +289,7 @@ mod tests {
         let error = sanitize_fullnode_network_configs(
             &node_config,
             NodeType::PublicFullnode,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
@@ -272,7 +316,7 @@ mod tests {
         let error = sanitize_fullnode_network_configs(
             &node_config,
             NodeType::ValidatorFullnode,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
@@ -290,7 +334,7 @@ mod tests {
         let error = sanitize_validator_network_config(
             &node_config,
             NodeType::Validator,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
@@ -312,7 +356,7 @@ mod tests {
         let error = sanitize_validator_network_config(
             &node_config,
             NodeType::PublicFullnode,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
@@ -334,7 +378,7 @@ mod tests {
         let error = sanitize_validator_network_config(
             &node_config,
             NodeType::Validator,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
@@ -355,7 +399,7 @@ mod tests {
         let error = sanitize_validator_network_config(
             &node_config,
             NodeType::Validator,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));

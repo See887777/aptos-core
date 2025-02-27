@@ -754,7 +754,7 @@ impl<'a> Instrumenter<'a> {
             let (rhs_temp, _) = self.builder.emit_let(self.builder.mk_call_with_inst(
                 &ghost_mem_ty,
                 ghost_mem.inst.clone(),
-                ast::Operation::Pack(ghost_mem.module_id, ghost_mem.id),
+                ast::Operation::Pack(ghost_mem.module_id, ghost_mem.id, None),
                 vec![new_rhs.clone()],
             ));
 
@@ -834,7 +834,7 @@ impl<'a> Instrumenter<'a> {
         for (node_id, kind, exp) in traces {
             let env = self.builder.global_env();
             let loc = env.get_node_loc(*node_id);
-            if !exp.free_vars(env).is_empty() {
+            if !exp.free_vars_with_types(env).is_empty() {
                 continue;
             }
             self.builder.set_loc(loc);

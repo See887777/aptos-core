@@ -2,14 +2,15 @@
 // Parts of the project are originally copyright © Meta Platforms, Inc.
 // SPDX-License-Identifier: Apache-2.0
 
+use super::transaction_filter_type::{Filter, Matcher};
 use crate::{
     config::{
         config_sanitizer::ConfigSanitizer, gas_estimation_config::GasEstimationConfig,
-        node_config_loader::NodeType, Error, NodeConfig,
+        node_config_loader::NodeType, Error, NodeConfig, MAX_RECEIVING_BLOCK_TXNS,
     },
     utils,
 };
-use aptos_types::chain_id::ChainId;
+use aptos_types::{account_address::AccountAddress, chain_id::ChainId};
 use serde::{Deserialize, Serialize};
 use std::net::SocketAddr;
 
@@ -39,6 +40,9 @@ pub struct ApiConfig {
     /// Enables BCS output of APIs that support it
     #[serde(default = "default_enabled")]
     pub bcs_output_enabled: bool,
+    /// Enables compression middleware for API responses
+    #[serde(default = "default_enabled")]
+    pub compression_enabled: bool,
     /// Enables encode submission API
     #[serde(default = "default_enabled")]
     pub encode_submission_enabled: bool,
@@ -52,6 +56,8 @@ pub struct ApiConfig {
     pub max_submit_transaction_batch_size: usize,
     /// Maximum page size for transaction paginated APIs
     pub max_transactions_page_size: u16,
+    /// Maximum page size for block transaction APIs
+    pub max_block_transactions_page_size: u16,
     /// Maximum page size for event paginated APIs
     pub max_events_page_size: u16,
     /// Maximum page size for resource paginated APIs
@@ -72,6 +78,20 @@ pub struct ApiConfig {
     pub runtime_worker_multiplier: usize,
     /// Configs for computing unit gas price estimation
     pub gas_estimation: GasEstimationConfig,
+    /// Periodically call gas estimation
+    pub periodic_gas_estimation_ms: Option<u64>,
+    /// Configuration to filter simulation requests.
+    pub simulation_filter: Filter,
+    /// Configuration to filter view function requests.
+    pub view_filter: ViewFilter,
+    /// Periodically log stats for view function and simulate transaction usage
+    pub periodic_function_stats_sec: Option<u64>,
+    /// The time wait_by_hash will wait before returning 404.
+    pub wait_by_hash_timeout_ms: u64,
+    /// The interval at which wait_by_hash will poll the storage for the transaction.
+    pub wait_by_hash_poll_interval_ms: u64,
+    /// The number of active wait_by_hash requests that can be active at any given time.
+    pub wait_by_hash_max_active_connections: usize,
 }
 
 const DEFAULT_ADDRESS: &str = "127.0.0.1";
@@ -104,10 +124,12 @@ impl Default for ApiConfig {
             failpoints_enabled: default_disabled(),
             bcs_output_enabled: default_enabled(),
             json_output_enabled: default_enabled(),
+            compression_enabled: default_enabled(),
             encode_submission_enabled: default_enabled(),
             transaction_submission_enabled: default_enabled(),
             transaction_simulation_enabled: default_enabled(),
             max_submit_transaction_batch_size: DEFAULT_MAX_SUBMIT_TRANSACTION_BATCH_SIZE,
+            max_block_transactions_page_size: *MAX_RECEIVING_BLOCK_TXNS as u16,
             max_transactions_page_size: DEFAULT_MAX_PAGE_SIZE,
             max_events_page_size: DEFAULT_MAX_PAGE_SIZE,
             max_account_resources_page_size: DEFAULT_MAX_ACCOUNT_RESOURCES_PAGE_SIZE,
@@ -116,6 +138,13 @@ impl Default for ApiConfig {
             max_runtime_workers: None,
             runtime_worker_multiplier: 2,
             gas_estimation: GasEstimationConfig::default(),
+            periodic_gas_estimation_ms: Some(30_000),
+            simulation_filter: Filter::default(),
+            view_filter: ViewFilter::default(),
+            periodic_function_stats_sec: Some(60),
+            wait_by_hash_timeout_ms: 1_000,
+            wait_by_hash_poll_interval_ms: 20,
+            wait_by_hash_max_active_connections: 100,
         }
     }
 }
@@ -137,7 +166,7 @@ impl ConfigSanitizer for ApiConfig {
     fn sanitize(
         node_config: &NodeConfig,
         node_type: NodeType,
-        chain_id: ChainId,
+        chain_id: Option<ChainId>,
     ) -> Result<(), Error> {
         let sanitizer_name = Self::get_sanitizer_name();
         let api_config = &node_config.api;
@@ -148,11 +177,13 @@ impl ConfigSanitizer for ApiConfig {
         }
 
         // Verify that failpoints are not enabled in mainnet
-        if chain_id.is_mainnet() && api_config.failpoints_enabled {
-            return Err(Error::ConfigSanitizerFailed(
-                sanitizer_name,
-                "Failpoints are not supported on mainnet nodes!".into(),
-            ));
+        if let Some(chain_id) = chain_id {
+            if chain_id.is_mainnet() && api_config.failpoints_enabled {
+                return Err(Error::ConfigSanitizerFailed(
+                    sanitizer_name,
+                    "Failpoints are not supported on mainnet nodes!".into(),
+                ));
+            }
         }
 
         // Validate basic runtime properties
@@ -163,9 +194,62 @@ impl ConfigSanitizer for ApiConfig {
             ));
         }
 
+        // We don't support Block ID based simulation filters.
+        for rule in api_config.simulation_filter.rules() {
+            if let Matcher::BlockId(_) = rule.matcher() {
+                return Err(Error::ConfigSanitizerFailed(
+                    sanitizer_name,
+                    "Block ID based simulation filters are not supported!".into(),
+                ));
+            }
+        }
+
+        // Sanitize the gas estimation config
         GasEstimationConfig::sanitize(node_config, node_type, chain_id)?;
 
         Ok(())
+    }
+}
+
+// This is necessary because we can't import the EntryFunctionId type from the API types.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub struct ViewFunctionId {
+    pub address: AccountAddress,
+    pub module: String,
+    pub function_name: String,
+}
+
+// We just accept Strings here because we can't import EntryFunctionId. We sanitize
+// the values later.
+#[derive(Clone, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ViewFilter {
+    /// Allowlist of functions. If a function is not found here, the API will refuse to
+    /// service the view / simulation request.
+    Allowlist(Vec<ViewFunctionId>),
+    /// Blocklist of functions. If a function is found here, the API will refuse to
+    /// service the view / simulation request.
+    Blocklist(Vec<ViewFunctionId>),
+}
+
+impl Default for ViewFilter {
+    fn default() -> Self {
+        ViewFilter::Blocklist(vec![])
+    }
+}
+
+impl ViewFilter {
+    /// Returns true if the given function is allowed by the filter.
+    pub fn allows(&self, address: &AccountAddress, module: &str, function: &str) -> bool {
+        match self {
+            ViewFilter::Allowlist(ids) => ids.iter().any(|id| {
+                &id.address == address && id.module == module && id.function_name == function
+            }),
+            ViewFilter::Blocklist(ids) => !ids.iter().any(|id| {
+                &id.address == address && id.module == module && id.function_name == function
+            }),
+        }
     }
 }
 
@@ -186,7 +270,7 @@ mod tests {
         };
 
         // Sanitize the config and verify that it succeeds
-        ApiConfig::sanitize(&node_config, NodeType::Validator, ChainId::mainnet()).unwrap();
+        ApiConfig::sanitize(&node_config, NodeType::Validator, Some(ChainId::mainnet())).unwrap();
     }
 
     #[test]
@@ -204,8 +288,15 @@ mod tests {
         // Sanitize the config and verify that it fails because
         // failpoints are not supported on mainnet.
         let error =
-            ApiConfig::sanitize(&node_config, NodeType::Validator, ChainId::mainnet()).unwrap_err();
+            ApiConfig::sanitize(&node_config, NodeType::Validator, Some(ChainId::mainnet()))
+                .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
+
+        // Sanitize the config for a different network and verify that it succeeds
+        ApiConfig::sanitize(&node_config, NodeType::Validator, Some(ChainId::testnet())).unwrap();
+
+        // Sanitize the config for an unknown network and verify that it succeeds
+        ApiConfig::sanitize(&node_config, NodeType::Validator, None).unwrap();
     }
 
     #[test]
@@ -224,7 +315,8 @@ mod tests {
         // Sanitize the config and verify that it fails because
         // the runtime worker multiplier is invalid.
         let error =
-            ApiConfig::sanitize(&node_config, NodeType::Validator, ChainId::mainnet()).unwrap_err();
+            ApiConfig::sanitize(&node_config, NodeType::Validator, Some(ChainId::mainnet()))
+                .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
     }
 }

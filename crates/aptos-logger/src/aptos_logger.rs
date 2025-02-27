@@ -13,7 +13,8 @@ use crate::{
     sample,
     sample::SampleRate,
     telemetry_log_writer::{TelemetryLog, TelemetryLogWriter},
-    Event, Filter, Key, Level, LevelFilter, Metadata,
+    Event, Filter, Key, Level, LevelFilter, Metadata, ERROR_LOG_COUNT, INFO_LOG_COUNT,
+    WARN_LOG_COUNT,
 };
 use aptos_infallible::RwLock;
 use backtrace::Backtrace;
@@ -23,9 +24,10 @@ use once_cell::sync::Lazy;
 use serde::{ser::SerializeStruct, Serialize, Serializer};
 use std::{
     collections::BTreeMap,
-    env, fmt,
-    fmt::Debug,
+    env,
+    fmt::{self, Debug},
     io::{Stdout, Write},
+    ops::{Deref, DerefMut},
     str::FromStr,
     sync::{self, Arc},
     thread,
@@ -42,6 +44,58 @@ pub const CHANNEL_SIZE: usize = 10000;
 const FLUSH_TIMEOUT: Duration = Duration::from_secs(5);
 const FILTER_REFRESH_INTERVAL: Duration =
     Duration::from_secs(5 /* minutes */ * 60 /* seconds */);
+
+/// Note: To disable length limits, set `RUST_LOG_FIELD_MAX_LEN` to -1.
+const RUST_LOG_FIELD_MAX_LEN_ENV_VAR: &str = "RUST_LOG_FIELD_MAX_LEN";
+static RUST_LOG_FIELD_MAX_LEN: Lazy<usize> = Lazy::new(|| {
+    env::var(RUST_LOG_FIELD_MAX_LEN_ENV_VAR)
+        .ok()
+        .and_then(|value| i64::from_str(&value).map(|value| value as usize).ok())
+        .unwrap_or(TruncatedLogString::DEFAULT_MAX_LEN)
+});
+
+struct TruncatedLogString(String);
+
+impl TruncatedLogString {
+    const DEFAULT_MAX_LEN: usize = 10 * 1024;
+    const TRUNCATION_SUFFIX: &'static str = "(truncated)";
+
+    fn new(s: String) -> Self {
+        let mut truncated = s;
+
+        if truncated.len() > RUST_LOG_FIELD_MAX_LEN.saturating_add(Self::TRUNCATION_SUFFIX.len()) {
+            truncated.truncate(*RUST_LOG_FIELD_MAX_LEN);
+            truncated.push_str(Self::TRUNCATION_SUFFIX);
+        }
+        TruncatedLogString(truncated)
+    }
+}
+
+impl DerefMut for TruncatedLogString {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
+impl Deref for TruncatedLogString {
+    type Target = String;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl From<String> for TruncatedLogString {
+    fn from(value: String) -> Self {
+        TruncatedLogString::new(value)
+    }
+}
+
+impl From<TruncatedLogString> for String {
+    fn from(val: TruncatedLogString) -> Self {
+        val.0
+    }
+}
 
 #[derive(EnumString)]
 #[strum(serialize_all = "lowercase")]
@@ -112,8 +166,12 @@ impl LogEntry {
         impl<'a> Visitor for JsonVisitor<'a> {
             fn visit_pair(&mut self, key: Key, value: Value<'_>) {
                 let v = match value {
-                    Value::Debug(d) => serde_json::Value::String(format!("{:?}", d)),
-                    Value::Display(d) => serde_json::Value::String(d.to_string()),
+                    Value::Debug(d) => serde_json::Value::String(
+                        TruncatedLogString::from(format!("{:?}", d)).into(),
+                    ),
+                    Value::Display(d) => {
+                        serde_json::Value::String(TruncatedLogString::from(d.to_string()).into())
+                    },
                     Value::Serde(s) => match serde_json::to_value(s) {
                         Ok(value) => value,
                         Err(e) => {
@@ -130,7 +188,10 @@ impl LogEntry {
 
         let metadata = *event.metadata();
         let thread_name = thread_name.map(ToOwned::to_owned);
-        let message = event.message().map(fmt::format);
+        let message = event
+            .message()
+            .map(fmt::format)
+            .map(|s| TruncatedLogString::from(s).into());
 
         static HOSTNAME: Lazy<Option<String>> = Lazy::new(|| {
             hostname::get()
@@ -143,8 +204,21 @@ impl LogEntry {
 
         let hostname = HOSTNAME.as_deref();
         let namespace = NAMESPACE.as_deref();
-        let peer_id = aptos_node_identity::peer_id_as_str();
-        let chain_id = aptos_node_identity::chain_id().map(|chain_id| chain_id.id());
+
+        let peer_id: Option<&str>;
+        let chain_id: Option<u8>;
+
+        #[cfg(node_identity)]
+        {
+            peer_id = aptos_node_identity::peer_id_as_str();
+            chain_id = aptos_node_identity::chain_id().map(|chain_id| chain_id.id());
+        }
+
+        #[cfg(not(node_identity))]
+        {
+            peer_id = None;
+            chain_id = None;
+        }
 
         let backtrace = if enable_backtrace && matches!(metadata.level(), Level::Error) {
             let mut backtrace = Backtrace::new();
@@ -544,6 +618,12 @@ impl LoggerService {
             match event {
                 LoggerServiceEvent::LogEntry(entry) => {
                     PROCESSED_STRUCT_LOG_COUNT.inc();
+                    match entry.metadata.level() {
+                        Level::Error => ERROR_LOG_COUNT.inc(),
+                        Level::Warn => WARN_LOG_COUNT.inc(),
+                        Level::Info => INFO_LOG_COUNT.inc(),
+                        _ => {},
+                    }
 
                     if let Some(printer) = &mut self.printer {
                         if self
@@ -566,7 +646,7 @@ impl LoggerService {
                             .telemetry_filter
                             .enabled(&entry.metadata)
                         {
-                            let s = (self.facade.formatter)(&entry).expect("Unable to format");
+                            let s = json_format(&entry).expect("Unable to format");
                             let _ = writer.write(s);
                         }
                     }
@@ -742,25 +822,52 @@ impl LoggerFilterUpdater {
 
 #[cfg(test)]
 mod tests {
-    use super::{AptosData, LogEntry};
+    use super::{text_format, AptosData, LogEntry};
     use crate::{
-        aptos_logger::{json_format, RUST_LOG_TELEMETRY},
+        aptos_logger::{json_format, TruncatedLogString, RUST_LOG_TELEMETRY},
         debug, error, info,
         logger::Logger,
+        telemetry_log_writer::TelemetryLog,
         trace, warn, AptosDataBuilder, Event, Key, KeyValue, Level, LoggerFilterUpdater, Metadata,
-        Schema, Value, Visitor,
+        Schema, Value, Visitor, Writer,
     };
     use chrono::{DateTime, Utc};
+    use futures::StreamExt;
     #[cfg(test)]
     use pretty_assertions::assert_eq;
     use serde_json::Value as JsonValue;
     use std::{
+        env,
         sync::{
             mpsc::{self, Receiver, SyncSender},
-            Arc,
+            Arc, Mutex,
         },
         thread,
+        time::Duration,
     };
+    use tokio::time;
+
+    pub struct MockWriter {
+        pub logs: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Writer for MockWriter {
+        fn write(&self, log: String) {
+            let mut logs = self.logs.lock().unwrap();
+            logs.push(log);
+        }
+
+        fn write_buferred(&mut self, log: String) {
+            self.write(log);
+        }
+    }
+
+    impl MockWriter {
+        pub fn new() -> (Self, Arc<Mutex<Vec<String>>>) {
+            let logs = Arc::new(Mutex::new(Vec::new()));
+            (Self { logs: logs.clone() }, logs)
+        }
+    }
 
     #[derive(serde::Serialize)]
     #[serde(rename_all = "snake_case")]
@@ -974,6 +1081,60 @@ mod tests {
         (logger_builder, logger)
     }
 
+    fn new_text_logger() -> (
+        Arc<AptosData>,
+        Arc<Mutex<Vec<String>>>,
+        futures::channel::mpsc::Receiver<TelemetryLog>,
+    ) {
+        let (tx, rx) = futures::channel::mpsc::channel(100);
+        let (mock_writer, logs) = MockWriter::new();
+
+        let logger = AptosDataBuilder::new()
+            .level(Level::Debug)
+            .telemetry_level(Level::Debug)
+            .remote_log_tx(tx)
+            .custom_format(text_format)
+            .printer(Box::new(mock_writer))
+            .is_async(true)
+            .build_logger();
+
+        (logger, logs, rx)
+    }
+
+    #[tokio::test]
+    async fn telemetry_logs_always_json_formatted() {
+        let (logger, local_logs, mut rx) = new_text_logger();
+
+        let metadata = Metadata::new(
+            Level::Info,
+            env!("CARGO_CRATE_NAME"),
+            module_path!(),
+            concat!(file!(), ':', line!()),
+        );
+
+        let event = &Event::new(&metadata, Some(format_args!("This is a log message")), &[]);
+        logger.record(event);
+        logger.flush();
+
+        {
+            let local_logs = local_logs.lock().unwrap();
+            assert!(serde_json::from_str::<JsonValue>(&local_logs[0]).is_err());
+        }
+
+        let timeout_duration = Duration::from_secs(5);
+        if let Ok(Some(TelemetryLog::Log(telemetry_log))) =
+            time::timeout(timeout_duration, rx.next()).await
+        {
+            assert!(
+                serde_json::from_str::<JsonValue>(&telemetry_log).is_ok(),
+                "Telemetry logs not in JSON format: {}",
+                telemetry_log
+            );
+        } else {
+            panic!("Timed out waiting for telemetry log");
+        }
+    }
+
     #[test]
     fn test_logger_filter_updater() {
         let (logger_builder, logger) = new_async_logger();
@@ -1024,5 +1185,54 @@ mod tests {
                 "hyper",
                 "source_path"
             )));
+    }
+
+    #[test]
+    fn test_log_event_truncation() {
+        let log_entry = LogEntry::new(
+            &Event::new(
+                &Metadata::new(Level::Error, "target", "hyper", "source_path"),
+                Some(format_args!(
+                    "{}",
+                    "a".repeat(2 * TruncatedLogString::DEFAULT_MAX_LEN)
+                )),
+                &[
+                    &KeyValue::new(
+                        "key1",
+                        Value::Debug(&"x".repeat(2 * TruncatedLogString::DEFAULT_MAX_LEN)),
+                    ),
+                    &KeyValue::new(
+                        "key2",
+                        Value::Display(&"y".repeat(2 * TruncatedLogString::DEFAULT_MAX_LEN)),
+                    ),
+                ],
+            ),
+            Some("test_thread"),
+            false,
+        );
+        assert_eq!(
+            log_entry.message,
+            Some(format!(
+                "{}{}",
+                "a".repeat(TruncatedLogString::DEFAULT_MAX_LEN),
+                "(truncated)"
+            ))
+        );
+        assert_eq!(
+            log_entry.data().first_key_value().unwrap().1,
+            &serde_json::Value::String(format!(
+                "\"{}{}",
+                "x".repeat(TruncatedLogString::DEFAULT_MAX_LEN - 1),
+                "(truncated)"
+            ))
+        );
+        assert_eq!(
+            log_entry.data().last_key_value().unwrap().1,
+            &serde_json::Value::String(format!(
+                "{}{}",
+                "y".repeat(TruncatedLogString::DEFAULT_MAX_LEN),
+                "(truncated)"
+            ))
+        );
     }
 }

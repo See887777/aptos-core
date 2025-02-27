@@ -5,9 +5,9 @@
 use crate::{
     smoke_test_environment::{new_local_swarm_with_aptos, SwarmBuilder},
     state_sync::test_all_validator_failures,
-    test_utils::{MAX_CONNECTIVITY_WAIT_SECS, MAX_HEALTHY_WAIT_SECS},
+    utils::{MAX_CONNECTIVITY_WAIT_SECS, MAX_HEALTHY_WAIT_SECS},
 };
-use aptos::{common::types::EncodingType, test::CliTestFramework};
+use aptos::test::CliTestFramework;
 use aptos_config::{
     config::{
         DiscoveryMethod, FileDiscovery, Identity, NetworkConfig, NodeConfig, OverrideNodeConfig,
@@ -15,7 +15,7 @@ use aptos_config::{
     },
     network_id::NetworkId,
 };
-use aptos_crypto::{x25519, x25519::PrivateKey};
+use aptos_crypto::{encoding_type::EncodingType, x25519, x25519::PrivateKey};
 use aptos_forge::{FullNode, Node, NodeExt, Swarm};
 use aptos_genesis::config::HostAndPort;
 use aptos_sdk::move_types::account_address::AccountAddress;
@@ -219,35 +219,6 @@ async fn test_peer_monitoring_service_enabled() {
         .with_aptos()
         .with_init_config(Arc::new(|_, config, _| {
             config.peer_monitoring_service.enable_peer_monitoring_client = true;
-        }))
-        .build()
-        .await;
-
-    // Test the ability of the validators to sync
-    test_all_validator_failures(swarm).await;
-}
-
-#[ignore]
-#[tokio::test]
-// Requires that the network-perf-test feature is enabled
-async fn test_network_performance_monitoring() {
-    // Create a swarm of 4 validators with peer monitoring enabled
-    let swarm = SwarmBuilder::new_local(4)
-        .with_aptos()
-        .with_init_config(Arc::new(|_, config, _| {
-            config.peer_monitoring_service.enable_peer_monitoring_client = true;
-            config
-                .peer_monitoring_service
-                .performance_monitoring
-                .enable_rpc_testing = true;
-            config
-                .peer_monitoring_service
-                .performance_monitoring
-                .rpc_interval_usec = 1_000_000; // 1 sec
-            config
-                .peer_monitoring_service
-                .performance_monitoring
-                .rpc_data_size = 1024; // 1 KB
         }))
         .build()
         .await;

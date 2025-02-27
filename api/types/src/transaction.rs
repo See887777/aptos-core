@@ -7,21 +7,34 @@ use crate::{
     MoveModuleBytecode, MoveModuleId, MoveResource, MoveScriptBytecode, MoveStructTag, MoveType,
     MoveValue, VerifyInput, VerifyInputWithRecursion, U64,
 };
-use anyhow::{bail, Context as AnyhowContext};
+use anyhow::{bail, Context as AnyhowContext, Result};
 use aptos_crypto::{
     ed25519::{self, Ed25519PublicKey, ED25519_PUBLIC_KEY_LENGTH, ED25519_SIGNATURE_LENGTH},
     multi_ed25519::{self, MultiEd25519PublicKey, BITMAP_NUM_OF_BYTES, MAX_NUM_OF_KEYS},
-    secp256k1_ecdsa,
+    secp256k1_ecdsa, secp256r1_ecdsa,
+    secp256r1_ecdsa::PUBLIC_KEY_LENGTH,
+    ValidCryptoMaterial,
 };
 use aptos_types::{
     account_address::AccountAddress,
+    aggregate_signature::AggregateSignature,
     block_metadata::BlockMetadata,
+    block_metadata_ext::BlockMetadataExt,
     contract_event::{ContractEvent, EventWithVersion},
+    dkg::{DKGTranscript, DKGTranscriptMetadata},
+    function_info::FunctionInfo,
+    jwks::{jwk::JWK, ProviderJWKs, QuorumCertifiedUpdate},
+    keyless,
     transaction::{
-        authenticator::{AccountAuthenticator, TransactionAuthenticator, MAX_NUM_OF_SIGS},
+        authenticator::{
+            AccountAuthenticator, AnyPublicKey, AnySignature, MultiKey, MultiKeyAuthenticator,
+            SingleKeyAuthenticator, TransactionAuthenticator, MAX_NUM_OF_SIGS,
+        },
+        webauthn::{PartialAuthenticatorAssertionResponse, MAX_WEBAUTHN_SIGNATURE_BYTES},
         Script, SignedTransaction, TransactionOutput, TransactionWithProof,
     },
 };
+use bcs::to_bytes;
 use once_cell::sync::Lazy;
 use poem_openapi::{Object, Union};
 use serde::{Deserialize, Serialize};
@@ -59,9 +72,21 @@ pub enum TransactionData {
     Pending(Box<SignedTransaction>),
 }
 
-impl From<TransactionOnChainData> for TransactionData {
-    fn from(txn: TransactionOnChainData) -> Self {
-        Self::OnChain(txn)
+impl TransactionData {
+    pub fn from_transaction_onchain_data(
+        txn: TransactionOnChainData,
+        latest_ledger_version: u64,
+    ) -> Result<Self> {
+        if txn.version > latest_ledger_version {
+            match txn.transaction {
+                aptos_types::transaction::Transaction::UserTransaction(txn) => {
+                    Ok(Self::Pending(Box::new(txn)))
+                },
+                _ => bail!("convert non-user onchain transaction to pending shouldn't exist"),
+            }
+        } else {
+            Ok(Self::OnChain(txn))
+        }
     }
 }
 
@@ -165,10 +190,12 @@ impl
 #[oai(one_of, discriminator_name = "type", rename_all = "snake_case")]
 pub enum Transaction {
     PendingTransaction(PendingTransaction),
-    UserTransaction(Box<UserTransaction>),
+    UserTransaction(UserTransaction),
     GenesisTransaction(GenesisTransaction),
     BlockMetadataTransaction(BlockMetadataTransaction),
     StateCheckpointTransaction(StateCheckpointTransaction),
+    BlockEpilogueTransaction(BlockEpilogueTransaction),
+    ValidatorTransaction(ValidatorTransaction),
 }
 
 impl Transaction {
@@ -179,6 +206,8 @@ impl Transaction {
             Transaction::PendingTransaction(_) => 0,
             Transaction::GenesisTransaction(_) => 0,
             Transaction::StateCheckpointTransaction(txn) => txn.timestamp.0,
+            Transaction::BlockEpilogueTransaction(txn) => txn.timestamp.0,
+            Transaction::ValidatorTransaction(txn) => txn.timestamp().0,
         }
     }
 
@@ -189,6 +218,8 @@ impl Transaction {
             Transaction::PendingTransaction(_) => None,
             Transaction::GenesisTransaction(txn) => Some(txn.info.version.into()),
             Transaction::StateCheckpointTransaction(txn) => Some(txn.info.version.into()),
+            Transaction::BlockEpilogueTransaction(txn) => Some(txn.info.version.into()),
+            Transaction::ValidatorTransaction(txn) => Some(txn.transaction_info().version.into()),
         }
     }
 
@@ -199,6 +230,8 @@ impl Transaction {
             Transaction::PendingTransaction(_txn) => false,
             Transaction::GenesisTransaction(txn) => txn.info.success,
             Transaction::StateCheckpointTransaction(txn) => txn.info.success,
+            Transaction::BlockEpilogueTransaction(txn) => txn.info.success,
+            Transaction::ValidatorTransaction(txn) => txn.transaction_info().success,
         }
     }
 
@@ -213,6 +246,8 @@ impl Transaction {
             Transaction::PendingTransaction(_txn) => "pending".to_owned(),
             Transaction::GenesisTransaction(txn) => txn.info.vm_status.clone(),
             Transaction::StateCheckpointTransaction(txn) => txn.info.vm_status.clone(),
+            Transaction::BlockEpilogueTransaction(txn) => txn.info.vm_status.clone(),
+            Transaction::ValidatorTransaction(txn) => txn.transaction_info().vm_status.clone(),
         }
     }
 
@@ -223,6 +258,8 @@ impl Transaction {
             Transaction::GenesisTransaction(_) => "genesis_transaction",
             Transaction::BlockMetadataTransaction(_) => "block_metadata_transaction",
             Transaction::StateCheckpointTransaction(_) => "state_checkpoint_transaction",
+            Transaction::BlockEpilogueTransaction(_) => "block_epilogue_transaction",
+            Transaction::ValidatorTransaction(vt) => vt.type_str(),
         }
     }
 
@@ -235,6 +272,8 @@ impl Transaction {
             },
             Transaction::GenesisTransaction(txn) => &txn.info,
             Transaction::StateCheckpointTransaction(txn) => &txn.info,
+            Transaction::BlockEpilogueTransaction(txn) => &txn.info,
+            Transaction::ValidatorTransaction(txn) => txn.transaction_info(),
         })
     }
 }
@@ -267,12 +306,12 @@ impl
             u64,
         ),
     ) -> Self {
-        Transaction::UserTransaction(Box::new(UserTransaction {
+        Transaction::UserTransaction(UserTransaction {
             info,
             request: (txn, payload).into(),
             events,
             timestamp: timestamp.into(),
-        }))
+        })
     }
 }
 
@@ -282,22 +321,6 @@ impl From<(TransactionInfo, WriteSetPayload, Vec<Event>)> for Transaction {
             info,
             payload: GenesisPayload::WriteSetPayload(payload),
             events,
-        })
-    }
-}
-
-impl From<(&BlockMetadata, TransactionInfo, Vec<Event>)> for Transaction {
-    fn from((txn, info, events): (&BlockMetadata, TransactionInfo, Vec<Event>)) -> Self {
-        Transaction::BlockMetadataTransaction(BlockMetadataTransaction {
-            info,
-            id: txn.id().into(),
-            epoch: txn.epoch().into(),
-            round: txn.round().into(),
-            events,
-            previous_block_votes_bitvec: txn.previous_block_votes_bitvec().clone(),
-            proposer: txn.proposer().into(),
-            failed_proposer_indices: txn.failed_proposer_indices().clone(),
-            timestamp: txn.timestamp_usecs().into(),
         })
     }
 }
@@ -381,6 +404,24 @@ pub struct StateCheckpointTransaction {
     #[oai(flatten)]
     pub info: TransactionInfo,
     pub timestamp: U64,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct BlockEndInfo {
+    pub block_gas_limit_reached: bool,
+    pub block_output_limit_reached: bool,
+    pub block_effective_block_gas_units: u64,
+    pub block_approx_output_size: u64,
+}
+
+/// A block epilogue transaction
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct BlockEpilogueTransaction {
+    #[serde(flatten)]
+    #[oai(flatten)]
+    pub info: TransactionInfo,
+    pub timestamp: U64,
+    pub block_end_info: Option<BlockEndInfo>,
 }
 
 /// A request to submit a transaction
@@ -518,6 +559,287 @@ pub struct BlockMetadataTransaction {
     /// The indices of the proposers who failed to propose
     pub failed_proposer_indices: Vec<u32>,
     pub timestamp: U64,
+
+    /// If some, it means the internal txn type is `aptos_types::transaction::Transaction::BlockMetadataExt`.
+    /// Otherwise, it is `aptos_types::transaction::Transaction::BlockMetadata`.
+    ///
+    /// NOTE: we could have introduced a new APT txn type to represent the corresponding internal type,
+    /// but that is a breaking change to the ecosystem.
+    ///
+    /// NOTE: `oai` does not support `flatten` together with `skip_serializing_if`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[oai(default, skip_serializing_if = "Option::is_none")]
+    pub block_metadata_extension: Option<BlockMetadataExtension>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct BlockMetadataExtensionEmpty {}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct BlockMetadataExtensionRandomness {
+    randomness: Option<HexEncodedBytes>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Union)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[oai(one_of, discriminator_name = "type", rename_all = "snake_case")]
+pub enum BlockMetadataExtension {
+    V0(BlockMetadataExtensionEmpty),
+    V1(BlockMetadataExtensionRandomness),
+}
+
+impl BlockMetadataExtension {
+    pub fn from_internal_txn(txn: &BlockMetadataExt) -> Self {
+        match txn {
+            BlockMetadataExt::V0(_) => Self::V0(BlockMetadataExtensionEmpty {}),
+            BlockMetadataExt::V1(payload) => Self::V1(BlockMetadataExtensionRandomness {
+                randomness: payload
+                    .randomness
+                    .clone()
+                    .map(|pr| HexEncodedBytes::from(pr.randomness_cloned())),
+            }),
+        }
+    }
+}
+
+impl BlockMetadataTransaction {
+    pub fn from_internal(
+        internal: BlockMetadata,
+        info: TransactionInfo,
+        events: Vec<Event>,
+    ) -> Self {
+        Self {
+            info,
+            id: internal.id().into(),
+            epoch: internal.epoch().into(),
+            round: internal.round().into(),
+            events,
+            previous_block_votes_bitvec: internal.previous_block_votes_bitvec().clone(),
+            proposer: internal.proposer().into(),
+            failed_proposer_indices: internal.failed_proposer_indices().clone(),
+            timestamp: internal.timestamp_usecs().into(),
+            block_metadata_extension: None,
+        }
+    }
+
+    pub fn from_internal_ext(
+        internal: BlockMetadataExt,
+        info: TransactionInfo,
+        events: Vec<Event>,
+    ) -> Self {
+        Self {
+            info,
+            id: internal.id().into(),
+            epoch: internal.epoch().into(),
+            round: internal.round().into(),
+            events,
+            previous_block_votes_bitvec: internal.previous_block_votes_bitvec().clone(),
+            proposer: internal.proposer().into(),
+            failed_proposer_indices: internal.failed_proposer_indices().clone(),
+            timestamp: internal.timestamp_usecs().into(),
+            block_metadata_extension: Some(BlockMetadataExtension::from_internal_txn(&internal)),
+        }
+    }
+
+    pub fn type_str(&self) -> &'static str {
+        match self.block_metadata_extension {
+            None => "block_metadata_transaction",
+            Some(BlockMetadataExtension::V0(_)) => "block_metadata_ext_transaction__v0",
+            Some(BlockMetadataExtension::V1(_)) => "block_metadata_ext_transaction__v1",
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Union)]
+#[serde(tag = "validator_transaction_type", rename_all = "snake_case")]
+#[oai(
+    one_of,
+    discriminator_name = "validator_transaction_type",
+    rename_all = "snake_case"
+)]
+pub enum ValidatorTransaction {
+    ObservedJwkUpdate(JWKUpdateTransaction),
+    DkgResult(DKGResultTransaction),
+}
+
+impl ValidatorTransaction {
+    pub fn type_str(&self) -> &'static str {
+        match self {
+            ValidatorTransaction::ObservedJwkUpdate(_) => {
+                "validator_transaction__observed_jwk_update"
+            },
+            ValidatorTransaction::DkgResult(_) => "validator_transaction__dkg_result",
+        }
+    }
+
+    pub fn transaction_info(&self) -> &TransactionInfo {
+        match self {
+            ValidatorTransaction::ObservedJwkUpdate(t) => &t.info,
+            ValidatorTransaction::DkgResult(t) => &t.info,
+        }
+    }
+
+    pub fn transaction_info_mut(&mut self) -> &mut TransactionInfo {
+        match self {
+            ValidatorTransaction::ObservedJwkUpdate(t) => &mut t.info,
+            ValidatorTransaction::DkgResult(t) => &mut t.info,
+        }
+    }
+
+    pub fn timestamp(&self) -> U64 {
+        match self {
+            ValidatorTransaction::ObservedJwkUpdate(t) => t.timestamp,
+            ValidatorTransaction::DkgResult(t) => t.timestamp,
+        }
+    }
+
+    pub fn events(&self) -> &[Event] {
+        match self {
+            ValidatorTransaction::ObservedJwkUpdate(t) => &t.events,
+            ValidatorTransaction::DkgResult(t) => &t.events,
+        }
+    }
+}
+
+impl
+    From<(
+        aptos_types::validator_txn::ValidatorTransaction,
+        TransactionInfo,
+        Vec<Event>,
+        u64,
+    )> for ValidatorTransaction
+{
+    fn from(
+        (txn, info, events, timestamp): (
+            aptos_types::validator_txn::ValidatorTransaction,
+            TransactionInfo,
+            Vec<Event>,
+            u64,
+        ),
+    ) -> Self {
+        match txn {
+            aptos_types::validator_txn::ValidatorTransaction::DKGResult(dkg_transcript) => {
+                Self::DkgResult(DKGResultTransaction {
+                    info,
+                    events,
+                    timestamp: U64::from(timestamp),
+                    dkg_transcript: dkg_transcript.into(),
+                })
+            },
+            aptos_types::validator_txn::ValidatorTransaction::ObservedJWKUpdate(
+                quorum_certified_update,
+            ) => Self::ObservedJwkUpdate(JWKUpdateTransaction {
+                info,
+                events,
+                timestamp: U64::from(timestamp),
+                quorum_certified_update: quorum_certified_update.into(),
+            }),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct JWKUpdateTransaction {
+    #[serde(flatten)]
+    #[oai(flatten)]
+    pub info: TransactionInfo,
+    pub events: Vec<Event>,
+    pub timestamp: U64,
+    pub quorum_certified_update: ExportedQuorumCertifiedUpdate,
+}
+
+/// A more API-friendly representation of the on-chain `aptos_types::jwks::QuorumCertifiedUpdate`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct ExportedQuorumCertifiedUpdate {
+    pub update: ExportedProviderJWKs,
+    pub multi_sig: ExportedAggregateSignature,
+}
+
+impl From<QuorumCertifiedUpdate> for ExportedQuorumCertifiedUpdate {
+    fn from(value: QuorumCertifiedUpdate) -> Self {
+        let QuorumCertifiedUpdate { update, multi_sig } = value;
+        Self {
+            update: update.into(),
+            multi_sig: multi_sig.into(),
+        }
+    }
+}
+
+/// A more API-friendly representation of the on-chain `aptos_types::aggregate_signature::AggregateSignature`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct ExportedAggregateSignature {
+    pub signer_indices: Vec<usize>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub sig: Option<HexEncodedBytes>,
+}
+
+impl From<AggregateSignature> for ExportedAggregateSignature {
+    fn from(value: AggregateSignature) -> Self {
+        Self {
+            signer_indices: value.get_signers_bitvec().iter_ones().collect(),
+            sig: value
+                .sig()
+                .as_ref()
+                .map(|s| HexEncodedBytes::from(s.to_bytes().to_vec())),
+        }
+    }
+}
+
+/// A more API-friendly representation of the on-chain `aptos_types::jwks::ProviderJWKs`.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct ExportedProviderJWKs {
+    pub issuer: String,
+    pub version: u64,
+    pub jwks: Vec<JWK>,
+}
+
+impl From<ProviderJWKs> for ExportedProviderJWKs {
+    fn from(value: ProviderJWKs) -> Self {
+        let ProviderJWKs {
+            issuer,
+            version,
+            jwks,
+        } = value;
+        Self {
+            issuer: String::from_utf8(issuer).unwrap_or("non_utf8_issuer".to_string()),
+            version,
+            jwks: jwks.iter().map(|on_chain_jwk|{
+                JWK::try_from(on_chain_jwk).expect("conversion from on-chain representation to human-friendly representation should work")
+            }).collect(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct DKGResultTransaction {
+    #[serde(flatten)]
+    #[oai(flatten)]
+    pub info: TransactionInfo,
+    pub events: Vec<Event>,
+    pub timestamp: U64,
+    pub dkg_transcript: ExportedDKGTranscript,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct ExportedDKGTranscript {
+    pub epoch: U64,
+    pub author: Address,
+    pub payload: HexEncodedBytes,
+}
+
+impl From<DKGTranscript> for ExportedDKGTranscript {
+    fn from(value: DKGTranscript) -> Self {
+        let DKGTranscript {
+            metadata,
+            transcript_bytes,
+        } = value;
+        let DKGTranscriptMetadata { epoch, author } = metadata;
+        Self {
+            epoch: epoch.into(),
+            author: author.into(),
+            payload: HexEncodedBytes::from(transcript_bytes),
+        }
+    }
 }
 
 /// An event from a transaction
@@ -604,8 +926,11 @@ pub enum GenesisPayload {
 pub enum TransactionPayload {
     EntryFunctionPayload(EntryFunctionPayload),
     ScriptPayload(ScriptPayload),
-    // Deprecated. Will be removed in the future.
-    ModuleBundlePayload(ModuleBundlePayload),
+
+    // Deprecated. We cannot remove the enum variant because it breaks the
+    // ordering, unfortunately.
+    ModuleBundlePayload(DeprecatedModuleBundlePayload),
+
     MultisigPayload(MultisigPayload),
 }
 
@@ -615,26 +940,19 @@ impl VerifyInput for TransactionPayload {
             TransactionPayload::EntryFunctionPayload(inner) => inner.verify(),
             TransactionPayload::ScriptPayload(inner) => inner.verify(),
             TransactionPayload::MultisigPayload(inner) => inner.verify(),
-            // Deprecated. Will be removed in the future.
-            TransactionPayload::ModuleBundlePayload(inner) => inner.verify(),
+
+            // Deprecated.
+            TransactionPayload::ModuleBundlePayload(_) => {
+                bail!("Module bundle payload has been removed")
+            },
         }
     }
 }
 
+// We cannot remove enum variant, but at least we can remove the logic
+// and keep a deprecate name here to avoid further usage.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
-pub struct ModuleBundlePayload {
-    pub modules: Vec<MoveModuleBytecode>,
-}
-
-impl VerifyInput for ModuleBundlePayload {
-    fn verify(&self) -> anyhow::Result<()> {
-        for module in self.modules.iter() {
-            module.verify()?;
-        }
-
-        Ok(())
-    }
-}
+pub struct DeprecatedModuleBundlePayload;
 
 /// Payload which runs a single entry function
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
@@ -694,6 +1012,8 @@ impl TryFrom<Script> for ScriptPayload {
 // We use an enum here for extensibility so we can add Script payload support
 // in the future for example.
 #[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize, Union)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[oai(one_of, discriminator_name = "type", rename_all = "snake_case")]
 pub enum MultisigTransactionPayload {
     EntryFunctionPayload(EntryFunctionPayload),
 }
@@ -705,6 +1025,8 @@ pub struct MultisigPayload {
     pub multisig_address: Address,
 
     // Transaction payload is optional if already stored on chain.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
     pub transaction_payload: Option<MultisigTransactionPayload>,
 }
 
@@ -870,7 +1192,8 @@ pub enum TransactionSignature {
     MultiEd25519Signature(MultiEd25519Signature),
     MultiAgentSignature(MultiAgentSignature),
     FeePayerSignature(FeePayerSignature),
-    Secp256k1EcdsaSignature(Secp256k1EcdsaSignature),
+    SingleSender(AccountSignature),
+    NoAccountSignature(NoAccountSignature),
 }
 
 impl VerifyInput for TransactionSignature {
@@ -880,7 +1203,8 @@ impl VerifyInput for TransactionSignature {
             TransactionSignature::MultiEd25519Signature(inner) => inner.verify(),
             TransactionSignature::MultiAgentSignature(inner) => inner.verify(),
             TransactionSignature::FeePayerSignature(inner) => inner.verify(),
-            TransactionSignature::Secp256k1EcdsaSignature(inner) => inner.verify(),
+            TransactionSignature::SingleSender(inner) => inner.verify(),
+            TransactionSignature::NoAccountSignature(inner) => inner.verify(),
         }
     }
 }
@@ -894,7 +1218,10 @@ impl TryFrom<TransactionSignature> for TransactionAuthenticator {
             TransactionSignature::MultiEd25519Signature(sig) => sig.try_into()?,
             TransactionSignature::MultiAgentSignature(sig) => sig.try_into()?,
             TransactionSignature::FeePayerSignature(sig) => sig.try_into()?,
-            TransactionSignature::Secp256k1EcdsaSignature(sig) => sig.try_into()?,
+            TransactionSignature::SingleSender(sig) => {
+                TransactionAuthenticator::single_sender(sig.try_into()?)
+            },
+            TransactionSignature::NoAccountSignature(sig) => sig.try_into()?,
         })
     }
 }
@@ -1119,45 +1446,515 @@ impl VerifyInput for Secp256k1EcdsaSignature {
     }
 }
 
-impl TryFrom<Secp256k1EcdsaSignature> for TransactionAuthenticator {
-    type Error = anyhow::Error;
+/// A single WebAuthn signature
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct WebAuthnSignature {
+    pub public_key: HexEncodedBytes,
+    pub signature: HexEncodedBytes,
+}
 
-    fn try_from(value: Secp256k1EcdsaSignature) -> Result<Self, Self::Error> {
-        let Secp256k1EcdsaSignature {
-            public_key,
-            signature,
-        } = value;
-        Ok(TransactionAuthenticator::secp256k1_ecdsa(
-            public_key
-                .inner()
-                .try_into()
-                .context("Failed to parse given public_key bytes as a Secp256k1EcdsaPublicKey")?,
-            signature
-                .inner()
-                .try_into()
-                .context("Failed to parse given signature as a Secp256k1EcdsaSignature")?,
-        ))
+impl VerifyInput for WebAuthnSignature {
+    fn verify(&self) -> anyhow::Result<()> {
+        let public_key_len = self.public_key.inner().len();
+        let signature_len = self.signature.inner().len();
+
+        // Currently only takes Secp256r1Ecdsa. If other signature schemes are introduced, modify this to accommodate them
+        if public_key_len != PUBLIC_KEY_LENGTH {
+            bail!(
+                "The public key provided is an invalid number of bytes, should be {} bytes but found {}. Note WebAuthn signatures only support Secp256r1Ecdsa at this time.",
+                secp256r1_ecdsa::PUBLIC_KEY_LENGTH, public_key_len
+            )
+        } else if signature_len > MAX_WEBAUTHN_SIGNATURE_BYTES {
+            bail!(
+                "The WebAuthn signature length is greater than the maximum number of {} bytes: found {} bytes.",
+                MAX_WEBAUTHN_SIGNATURE_BYTES, signature_len
+            )
+        } else {
+            // TODO: Check if they match / parse correctly?
+            Ok(())
+        }
     }
 }
 
-impl TryFrom<Secp256k1EcdsaSignature> for AccountAuthenticator {
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct KeylessSignature {
+    pub public_key: HexEncodedBytes,
+    pub signature: HexEncodedBytes,
+}
+
+impl VerifyInput for KeylessSignature {
+    fn verify(&self) -> anyhow::Result<()> {
+        let public_key_len = self.public_key.inner().len();
+        let signature_len = self.signature.inner().len();
+        if public_key_len
+            > std::cmp::max(
+                keyless::KeylessPublicKey::MAX_LEN,
+                keyless::FederatedKeylessPublicKey::MAX_LEN,
+            )
+        {
+            bail!(
+                "Keyless public key length is greater than the maximum number of {} bytes: found {} bytes",
+                keyless::KeylessPublicKey::MAX_LEN, public_key_len
+            )
+        } else if signature_len > keyless::KeylessSignature::MAX_LEN {
+            bail!(
+                "Keyless signature length is greater than the maximum number of {} bytes: found {} bytes",
+                keyless::KeylessSignature::MAX_LEN, signature_len
+            )
+        } else {
+            Ok(())
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Union)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[oai(one_of, discriminator_name = "type", rename_all = "snake_case")]
+pub enum Signature {
+    Ed25519(Ed25519),
+    Secp256k1Ecdsa(Secp256k1Ecdsa),
+    WebAuthn(WebAuthn),
+    Keyless(Keyless),
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct Ed25519 {
+    pub value: HexEncodedBytes,
+}
+
+impl Ed25519 {
+    pub fn new(value: HexEncodedBytes) -> Self {
+        Self { value }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct Secp256k1Ecdsa {
+    pub value: HexEncodedBytes,
+}
+
+impl Secp256k1Ecdsa {
+    pub fn new(value: HexEncodedBytes) -> Self {
+        Self { value }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct Secp256r1Ecdsa {
+    pub value: HexEncodedBytes,
+}
+
+impl Secp256r1Ecdsa {
+    pub fn new(value: HexEncodedBytes) -> Self {
+        Self { value }
+    }
+}
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct WebAuthn {
+    pub value: HexEncodedBytes,
+}
+
+impl WebAuthn {
+    pub fn new(value: HexEncodedBytes) -> Self {
+        Self { value }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct Keyless {
+    pub value: HexEncodedBytes,
+}
+
+impl Keyless {
+    pub fn new(value: HexEncodedBytes) -> Self {
+        Self { value }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct FederatedKeyless {
+    pub value: HexEncodedBytes,
+}
+
+impl FederatedKeyless {
+    pub fn new(value: HexEncodedBytes) -> Self {
+        Self { value }
+    }
+}
+
+impl TryFrom<Signature> for AnySignature {
     type Error = anyhow::Error;
 
-    fn try_from(value: Secp256k1EcdsaSignature) -> Result<Self, Self::Error> {
-        let Secp256k1EcdsaSignature {
-            public_key,
-            signature,
-        } = value;
-        Ok(AccountAuthenticator::secp256k1_ecdsa(
-            public_key
-                .inner()
-                .try_into()
-                .context("Failed to parse given public_key bytes as a Secp256k1EcdsaPublicKey")?,
-            signature
-                .inner()
-                .try_into()
-                .context("Failed to parse given signature as a Secp256k1EcdsaSignature")?,
-        ))
+    fn try_from(signature: Signature) -> Result<Self, Self::Error> {
+        Ok(match signature {
+            Signature::Ed25519(s) => AnySignature::ed25519(s.value.inner().try_into()?),
+            Signature::Secp256k1Ecdsa(s) => {
+                AnySignature::secp256k1_ecdsa(s.value.inner().try_into()?)
+            },
+            Signature::WebAuthn(s) => AnySignature::webauthn(s.value.inner().try_into()?),
+            Signature::Keyless(s) => AnySignature::keyless(s.value.inner().try_into()?),
+        })
+    }
+}
+
+impl From<AnySignature> for Signature {
+    fn from(signature: AnySignature) -> Self {
+        match signature {
+            AnySignature::Ed25519 { signature } => {
+                Signature::Ed25519(Ed25519::new(signature.to_bytes().to_vec().into()))
+            },
+            AnySignature::Secp256k1Ecdsa { signature } => {
+                Signature::Secp256k1Ecdsa(Secp256k1Ecdsa::new(signature.to_bytes().to_vec().into()))
+            },
+            AnySignature::WebAuthn { signature } => {
+                Signature::WebAuthn(WebAuthn::new(signature.to_bytes().to_vec().into()))
+            },
+            AnySignature::Keyless { signature } => {
+                Signature::Keyless(Keyless::new(signature.to_bytes().into()))
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Union)]
+#[serde(tag = "type", rename_all = "snake_case")]
+#[oai(one_of, discriminator_name = "type", rename_all = "snake_case")]
+pub enum PublicKey {
+    Ed25519(Ed25519),
+    Secp256k1Ecdsa(Secp256k1Ecdsa),
+    Secp256r1Ecdsa(Secp256r1Ecdsa),
+    Keyless(Keyless),
+    FederatedKeyless(FederatedKeyless),
+}
+
+impl TryFrom<PublicKey> for AnyPublicKey {
+    type Error = anyhow::Error;
+
+    fn try_from(public_key: PublicKey) -> Result<Self, Self::Error> {
+        Ok(match public_key {
+            PublicKey::Ed25519(p) => AnyPublicKey::ed25519(p.value.inner().try_into()?),
+            PublicKey::Secp256k1Ecdsa(p) => {
+                AnyPublicKey::secp256k1_ecdsa(p.value.inner().try_into()?)
+            },
+            PublicKey::Secp256r1Ecdsa(p) => {
+                AnyPublicKey::secp256r1_ecdsa(p.value.inner().try_into()?)
+            },
+            PublicKey::Keyless(p) => AnyPublicKey::keyless(p.value.inner().try_into()?),
+            PublicKey::FederatedKeyless(p) => {
+                AnyPublicKey::federated_keyless(p.value.inner().try_into()?)
+            },
+        })
+    }
+}
+
+impl From<AnyPublicKey> for PublicKey {
+    fn from(key: AnyPublicKey) -> Self {
+        match key {
+            AnyPublicKey::Ed25519 { public_key } => {
+                PublicKey::Ed25519(Ed25519::new(public_key.to_bytes().to_vec().into()))
+            },
+            AnyPublicKey::Secp256k1Ecdsa { public_key } => PublicKey::Secp256k1Ecdsa(
+                Secp256k1Ecdsa::new(public_key.to_bytes().to_vec().into()),
+            ),
+            AnyPublicKey::Secp256r1Ecdsa { public_key } => PublicKey::Secp256r1Ecdsa(
+                Secp256r1Ecdsa::new(public_key.to_bytes().to_vec().into()),
+            ),
+            AnyPublicKey::Keyless { public_key } => {
+                PublicKey::Keyless(Keyless::new(public_key.to_bytes().into()))
+            },
+            AnyPublicKey::FederatedKeyless { public_key } => {
+                PublicKey::FederatedKeyless(FederatedKeyless::new(public_key.to_bytes().into()))
+            },
+        }
+    }
+}
+
+/// A single key signature
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct SingleKeySignature {
+    pub public_key: PublicKey,
+    pub signature: Signature,
+}
+
+impl VerifyInput for SingleKeySignature {
+    fn verify(&self) -> anyhow::Result<()> {
+        match (&self.public_key, &self.signature) {
+            (PublicKey::Ed25519(p), Signature::Ed25519(s)) => Ed25519Signature {
+                public_key: p.value.clone(),
+                signature: s.value.clone(),
+            }
+            .verify(),
+            (PublicKey::Secp256k1Ecdsa(p), Signature::Secp256k1Ecdsa(s)) => {
+                Secp256k1EcdsaSignature {
+                    public_key: p.value.clone(),
+                    signature: s.value.clone(),
+                }
+                .verify()
+            },
+            (PublicKey::Secp256r1Ecdsa(p), Signature::WebAuthn(s)) => WebAuthnSignature {
+                public_key: p.value.clone(),
+                signature: s.value.clone(),
+            }
+            .verify(),
+            (PublicKey::Keyless(p), Signature::Keyless(s)) => KeylessSignature {
+                public_key: p.value.clone(),
+                signature: s.value.clone(),
+            }
+            .verify(),
+            (PublicKey::FederatedKeyless(p), Signature::Keyless(s)) => KeylessSignature {
+                public_key: p.value.clone(),
+                signature: s.value.clone(),
+            }
+            .verify(),
+            _ => bail!("Invalid public key, signature match."),
+        }
+    }
+}
+
+impl TryFrom<SingleKeySignature> for TransactionAuthenticator {
+    type Error = anyhow::Error;
+
+    fn try_from(signature: SingleKeySignature) -> Result<Self, Self::Error> {
+        let account_auth = signature.try_into()?;
+        Ok(TransactionAuthenticator::single_sender(account_auth))
+    }
+}
+
+impl TryFrom<SingleKeySignature> for AccountAuthenticator {
+    type Error = anyhow::Error;
+
+    fn try_from(value: SingleKeySignature) -> Result<Self, Self::Error> {
+        let key =
+            match value.public_key {
+                PublicKey::Ed25519(p) => {
+                    let key =
+                        p.value.inner().try_into().context(
+                            "Failed to parse given public_key bytes as Ed25519PublicKey",
+                        )?;
+                    AnyPublicKey::ed25519(key)
+                },
+                PublicKey::Secp256k1Ecdsa(p) => {
+                    let key = p.value.inner().try_into().context(
+                        "Failed to parse given public_key bytes as Secp256k1EcdsaPublicKey",
+                    )?;
+                    AnyPublicKey::secp256k1_ecdsa(key)
+                },
+                PublicKey::Secp256r1Ecdsa(p) => {
+                    let key = p.value.inner().try_into().context(
+                        "Failed to parse given public_key bytes as Secp256r1EcdsaPublicKey",
+                    )?;
+                    AnyPublicKey::secp256r1_ecdsa(key)
+                },
+                PublicKey::Keyless(p) => {
+                    let key = p.value.inner().try_into().context(
+                        "Failed to parse given public_key bytes as AnyPublicKey::Keyless",
+                    )?;
+                    AnyPublicKey::keyless(key)
+                },
+                PublicKey::FederatedKeyless(p) => {
+                    let key = p.value.inner().try_into().context(
+                        "Failed to parse given public_key bytes as AnyPublicKey::FederatedKeyless",
+                    )?;
+                    AnyPublicKey::keyless(key)
+                },
+            };
+
+        let signature = match value.signature {
+            Signature::Ed25519(s) => {
+                let signature = s
+                    .value
+                    .inner()
+                    .try_into()
+                    .context("Failed to parse given signature bytes as Ed25519Signature")?;
+                AnySignature::ed25519(signature)
+            },
+            Signature::Secp256k1Ecdsa(s) => {
+                let signature =
+                    s.value.inner().try_into().context(
+                        "Failed to parse given signature bytes as Secp256k1EcdsaSignature",
+                    )?;
+                AnySignature::secp256k1_ecdsa(signature)
+            },
+            Signature::WebAuthn(s) => {
+                let signature = s
+                    .value
+                    .inner()
+                    .try_into()
+                    .context( "Failed to parse given signature bytes as PartialAuthenticatorAssertionResponse")?;
+                AnySignature::webauthn(signature)
+            },
+            Signature::Keyless(s) => {
+                let signature =
+                    s.value.inner().try_into().context(
+                        "Failed to parse given signature bytes as AnySignature::Keyless",
+                    )?;
+                AnySignature::keyless(signature)
+            },
+        };
+
+        let auth = SingleKeyAuthenticator::new(key, signature);
+        Ok(AccountAuthenticator::single_key(auth))
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct IndexedSignature {
+    pub index: u8,
+    pub signature: Signature,
+}
+
+/// A multi key signature
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct MultiKeySignature {
+    pub public_keys: Vec<PublicKey>,
+    pub signatures: Vec<IndexedSignature>,
+    pub signatures_required: u8,
+}
+
+impl VerifyInput for MultiKeySignature {
+    fn verify(&self) -> anyhow::Result<()> {
+        let _: AccountAuthenticator = self.clone().try_into()?;
+        Ok(())
+    }
+}
+
+impl TryFrom<MultiKeySignature> for TransactionAuthenticator {
+    type Error = anyhow::Error;
+
+    fn try_from(signature: MultiKeySignature) -> Result<Self, Self::Error> {
+        let account_auth = signature.try_into()?;
+        Ok(TransactionAuthenticator::single_sender(account_auth))
+    }
+}
+
+impl TryFrom<MultiKeySignature> for AccountAuthenticator {
+    type Error = anyhow::Error;
+
+    fn try_from(value: MultiKeySignature) -> Result<Self, Self::Error> {
+        let mut public_keys = vec![];
+        for public_key in value.public_keys {
+            let key = match public_key {
+                PublicKey::Ed25519(p) => {
+                    let key =
+                        p.value.inner().try_into().context(
+                            "Failed to parse given public_key bytes as Ed25519PublicKey",
+                        )?;
+                    AnyPublicKey::ed25519(key)
+                },
+                PublicKey::Secp256k1Ecdsa(p) => {
+                    let key = p.value.inner().try_into().context(
+                        "Failed to parse given public_key bytes as Secp256k1EcdsaPublicKey",
+                    )?;
+                    AnyPublicKey::secp256k1_ecdsa(key)
+                },
+                PublicKey::Secp256r1Ecdsa(p) => {
+                    let key = p.value.inner().try_into().context(
+                        "Failed to parse given public_key bytes as Secp256r1EcdsaPublicKey",
+                    )?;
+                    AnyPublicKey::secp256r1_ecdsa(key)
+                },
+                PublicKey::Keyless(p) => {
+                    let key = p.value.inner().try_into().context(
+                        "Failed to parse given public_key bytes as AnyPublicKey::Keyless",
+                    )?;
+                    AnyPublicKey::keyless(key)
+                },
+                PublicKey::FederatedKeyless(p) => {
+                    let key = p.value.inner().try_into().context(
+                        "Failed to parse given public_key bytes as AnyPublicKey::FederatedKeyless",
+                    )?;
+                    AnyPublicKey::federated_keyless(key)
+                },
+            };
+            public_keys.push(key);
+        }
+
+        let mut signatures = vec![];
+        for indexed_signature in value.signatures {
+            let signature =
+                match indexed_signature.signature {
+                    Signature::Ed25519(s) => {
+                        let signature = s.value.inner().try_into().context(
+                            "Failed to parse given public_key bytes as Ed25519Signature",
+                        )?;
+                        AnySignature::ed25519(signature)
+                    },
+                    Signature::Secp256k1Ecdsa(s) => {
+                        let signature = s.value.inner().try_into().context(
+                            "Failed to parse given signature as Secp256k1EcdsaSignature",
+                        )?;
+                        AnySignature::secp256k1_ecdsa(signature)
+                    },
+                    Signature::WebAuthn(s) => {
+                        let paar = s.value.inner().try_into().context(
+                        "Failed to parse given signature as PartialAuthenticatorAssertionResponse",
+                    )?;
+                        AnySignature::webauthn(paar)
+                    },
+                    Signature::Keyless(s) => {
+                        let signature =
+                            s.value.inner().try_into().context(
+                                "Failed to parse given signature as AnySignature::Keyless",
+                            )?;
+                        AnySignature::keyless(signature)
+                    },
+                };
+            signatures.push((indexed_signature.index, signature));
+        }
+
+        let multi_key = MultiKey::new(public_keys, value.signatures_required)?;
+        let auth = MultiKeyAuthenticator::new(multi_key, signatures)?;
+        Ok(AccountAuthenticator::multi_key(auth))
+    }
+}
+
+/// A placeholder to represent the absence of account signature
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct NoAccountSignature;
+
+impl VerifyInput for NoAccountSignature {
+    fn verify(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize, Object)]
+pub struct AbstractionSignature {
+    pub function_info: String,
+    pub auth_data: HexEncodedBytes,
+}
+
+impl VerifyInput for AbstractionSignature {
+    fn verify(&self) -> anyhow::Result<()> {
+        Ok(())
+    }
+}
+
+impl TryFrom<NoAccountSignature> for TransactionAuthenticator {
+    type Error = anyhow::Error;
+
+    fn try_from(signature: NoAccountSignature) -> Result<Self, Self::Error> {
+        let account_auth = signature.try_into()?;
+        Ok(TransactionAuthenticator::single_sender(account_auth))
+    }
+}
+
+impl TryFrom<NoAccountSignature> for AccountAuthenticator {
+    type Error = anyhow::Error;
+
+    fn try_from(_value: NoAccountSignature) -> Result<Self, Self::Error> {
+        Ok(AccountAuthenticator::NoAccountAuthenticator)
+    }
+}
+
+impl TryFrom<AbstractionSignature> for AccountAuthenticator {
+    type Error = anyhow::Error;
+
+    fn try_from(value: AbstractionSignature) -> Result<Self, Self::Error> {
+        Ok(AccountAuthenticator::Abstraction {
+            function_info: FunctionInfo::from_str(&value.function_info)?,
+            auth_data: bcs::from_bytes(value.auth_data.inner())?,
+        })
     }
 }
 
@@ -1174,7 +1971,10 @@ impl TryFrom<Secp256k1EcdsaSignature> for AccountAuthenticator {
 pub enum AccountSignature {
     Ed25519Signature(Ed25519Signature),
     MultiEd25519Signature(MultiEd25519Signature),
-    Secp256k1EcdsaSignature(Secp256k1EcdsaSignature),
+    SingleKeySignature(SingleKeySignature),
+    MultiKeySignature(MultiKeySignature),
+    NoAccountSignature(NoAccountSignature),
+    AbstractionSignature(AbstractionSignature),
 }
 
 impl VerifyInput for AccountSignature {
@@ -1182,7 +1982,10 @@ impl VerifyInput for AccountSignature {
         match self {
             AccountSignature::Ed25519Signature(inner) => inner.verify(),
             AccountSignature::MultiEd25519Signature(inner) => inner.verify(),
-            AccountSignature::Secp256k1EcdsaSignature(inner) => inner.verify(),
+            AccountSignature::SingleKeySignature(inner) => inner.verify(),
+            AccountSignature::MultiKeySignature(inner) => inner.verify(),
+            AccountSignature::NoAccountSignature(inner) => inner.verify(),
+            AccountSignature::AbstractionSignature(inner) => inner.verify(),
         }
     }
 }
@@ -1194,7 +1997,10 @@ impl TryFrom<AccountSignature> for AccountAuthenticator {
         Ok(match sig {
             AccountSignature::Ed25519Signature(s) => s.try_into()?,
             AccountSignature::MultiEd25519Signature(s) => s.try_into()?,
-            AccountSignature::Secp256k1EcdsaSignature(s) => s.try_into()?,
+            AccountSignature::SingleKeySignature(s) => s.try_into()?,
+            AccountSignature::MultiKeySignature(s) => s.try_into()?,
+            AccountSignature::NoAccountSignature(s) => s.try_into()?,
+            AccountSignature::AbstractionSignature(s) => s.try_into()?,
         })
     }
 }
@@ -1300,6 +2106,25 @@ impl From<(&secp256k1_ecdsa::PublicKey, &secp256k1_ecdsa::Signature)> for Secp25
     }
 }
 
+impl
+    From<(
+        &secp256r1_ecdsa::PublicKey,
+        &PartialAuthenticatorAssertionResponse,
+    )> for Secp256k1EcdsaSignature
+{
+    fn from(
+        (pk, sig): (
+            &secp256r1_ecdsa::PublicKey,
+            &PartialAuthenticatorAssertionResponse,
+        ),
+    ) -> Self {
+        Self {
+            public_key: pk.to_bytes().to_vec().into(),
+            signature: sig.to_bytes().to_vec().into(),
+        }
+    }
+}
+
 impl From<&AccountAuthenticator> for AccountSignature {
     fn from(auth: &AccountAuthenticator) -> Self {
         use AccountAuthenticator::*;
@@ -1312,10 +2137,40 @@ impl From<&AccountAuthenticator> for AccountSignature {
                 public_key,
                 signature,
             } => Self::MultiEd25519Signature((public_key, signature).into()),
-            Secp256k1Ecdsa {
-                public_key,
-                signature,
-            } => Self::Secp256k1EcdsaSignature((public_key, signature).into()),
+            SingleKey { authenticator } => Self::SingleKeySignature(SingleKeySignature {
+                public_key: authenticator.public_key().clone().into(),
+                signature: authenticator.signature().clone().into(),
+            }),
+            MultiKey { authenticator } => {
+                let public_keys = authenticator.public_keys();
+                let signatures = authenticator.signatures();
+
+                Self::MultiKeySignature(MultiKeySignature {
+                    public_keys: public_keys
+                        .public_keys()
+                        .iter()
+                        .map(|pk| pk.clone().into())
+                        .collect(),
+                    signatures: signatures
+                        .into_iter()
+                        .map(|(index, signature)| IndexedSignature {
+                            index,
+                            signature: signature.clone().into(),
+                        })
+                        .collect(),
+                    signatures_required: public_keys.signatures_required(),
+                })
+            },
+            NoAccountAuthenticator => AccountSignature::NoAccountSignature(NoAccountSignature),
+            Abstraction {
+                function_info,
+                auth_data,
+            } => Self::AbstractionSignature(AbstractionSignature {
+                function_info: function_info.to_string(),
+                auth_data: to_bytes(auth_data)
+                    .expect("bcs serialization cannot fail")
+                    .into(),
+            }),
         }
     }
 }
@@ -1460,10 +2315,7 @@ impl From<TransactionAuthenticator> for TransactionSignature {
                 )
                     .into(),
             ),
-            Secp256k1Ecdsa {
-                public_key,
-                signature,
-            } => Self::Secp256k1EcdsaSignature((public_key, signature).into()),
+            SingleSender { sender } => Self::SingleSender(sender.into()),
         }
     }
 }

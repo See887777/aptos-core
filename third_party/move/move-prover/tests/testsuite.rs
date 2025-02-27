@@ -8,10 +8,12 @@ use datatest_stable::Requirements;
 use itertools::Itertools;
 use log::{info, warn};
 use move_command_line_common::{env::read_env_var, testing::EXP_EXT};
-use move_prover::{cli::Options, run_move_prover};
+use move_model::metadata::LanguageVersion;
+use move_prover::{cli::Options, run_move_prover_v2};
 use move_prover_test_utils::{baseline_test::verify_or_update_baseline, extract_test_directives};
 use once_cell::sync::OnceCell;
 use std::{
+    collections::BTreeMap,
     path::{Path, PathBuf},
     sync::atomic::{AtomicBool, Ordering},
 };
@@ -63,14 +65,14 @@ fn get_features() -> &'static [Feature] {
     static TESTED_FEATURES: OnceCell<Vec<Feature>> = OnceCell::new();
     TESTED_FEATURES.get_or_init(|| {
         vec![
-            // Tests the default configuration.
+            // Tests the default configuration with the v2 compiler chain
             Feature {
                 name: "default",
                 flags: &[],
                 inclusion_mode: InclusionMode::Implicit,
                 enable_in_ci: true,
                 only_if_requested: false,
-                separate_baseline: false,
+                separate_baseline: false, // different traces in .exp file
                 runner: |p| test_runner_for_feature(p, get_feature_by_name("default")),
                 enabling_condition: |_, _| true,
             },
@@ -150,7 +152,9 @@ fn test_runner_for_feature(path: &Path, feature: &Feature) -> datatest_stable::R
     options.backend.stable_test_output = true;
 
     let mut error_writer = Buffer::no_color();
-    let mut diags = match run_move_prover(&mut error_writer, options) {
+    options.language_version = Some(LanguageVersion::latest());
+    let result = run_move_prover_v2(&mut error_writer, options);
+    let mut diags = match result {
         Ok(()) => "".to_string(),
         Err(err) => format!("Move prover returns: {}\n", err),
     };
@@ -234,6 +238,7 @@ fn get_flags_and_baseline(
 /// in the source. We still use datatest to finally run the tests to utilize its
 /// execution engine.
 fn collect_enabled_tests(reqs: &mut Vec<Requirements>, group: &str, feature: &Feature, path: &str) {
+    let mut test_groups: BTreeMap<&'static str, Vec<String>> = BTreeMap::new();
     let mut p = PathBuf::new();
     p.push(path);
     for entry in WalkDir::new(p.clone())
@@ -263,19 +268,23 @@ fn collect_enabled_tests(reqs: &mut Vec<Requirements>, group: &str, feature: &Fe
                     .unwrap_or_default()
                     .is_empty();
         }
-        let root_str = p.to_string_lossy().to_string();
         let path_str = path.to_string_lossy().to_string();
         if included {
             included = (feature.enabling_condition)(group, &path_str);
         }
         if included {
-            reqs.push(Requirements::new(
-                feature.runner,
-                format!("prover {}[{}]", group, feature.name),
-                root_str,
-                path_str,
-            ));
+            test_groups.entry(feature.name).or_default().push(path_str);
         }
+    }
+
+    for (name, files) in test_groups {
+        let feature = get_feature_by_name(name);
+        reqs.push(Requirements::new(
+            feature.runner,
+            format!("prover {}[{}]", group, feature.name),
+            path.to_string(),
+            files.into_iter().map(|s| s + "$").join("|"),
+        ));
     }
 }
 

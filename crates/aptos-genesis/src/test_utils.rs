@@ -1,12 +1,29 @@
 // Copyright © Aptos Foundation
 // SPDX-License-Identifier: Apache-2.0
 
+use crate::builder::InitGenesisConfigFn;
 use aptos_config::config::{IdentityBlob, NodeConfig};
 use aptos_crypto::ed25519::Ed25519PrivateKey;
 use aptos_temppath::TempPath;
+use aptos_types::on_chain_config::Features;
 use rand::{rngs::StdRng, SeedableRng};
+use std::sync::Arc;
 
 pub fn test_config() -> (NodeConfig, Ed25519PrivateKey) {
+    test_config_with_custom_onchain(None)
+}
+
+pub fn test_config_with_custom_features(
+    init_features: Features,
+) -> (NodeConfig, Ed25519PrivateKey) {
+    test_config_with_custom_onchain(Some(Arc::new(move |config| {
+        config.initial_features_override = Some(init_features.clone());
+    })))
+}
+
+pub fn test_config_with_custom_onchain(
+    init_genesis_config: Option<InitGenesisConfigFn>,
+) -> (NodeConfig, Ed25519PrivateKey) {
     let path = TempPath::new();
     path.create_as_dir().unwrap();
     let (root_key, _genesis, _genesis_waypoint, validators) = crate::builder::Builder::new(
@@ -14,6 +31,7 @@ pub fn test_config() -> (NodeConfig, Ed25519PrivateKey) {
         aptos_cached_packages::head_release_bundle().clone(),
     )
     .unwrap()
+    .with_init_genesis_config(init_genesis_config)
     .build(StdRng::from_seed([0; 32]))
     .unwrap();
     let (

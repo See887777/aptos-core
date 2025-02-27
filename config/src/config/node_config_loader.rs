@@ -11,9 +11,8 @@ use crate::{
 use aptos_types::{
     chain_id::ChainId,
     on_chain_config::OnChainConfig,
-    state_store::state_key::{StateKey, StateKeyInner},
+    state_store::state_key::StateKey,
     transaction::{Transaction, WriteSetPayload},
-    write_set::WriteOp,
 };
 use serde_yaml::Value;
 use std::path::Path;
@@ -78,12 +77,15 @@ impl<P: AsRef<Path>> NodeConfigLoader<P> {
         let input_dir = RootPath::new(&self.node_config_path);
         node_config.execution.load_from_path(&input_dir)?;
 
+        // Update the data directory. This needs to be done before
+        // we optimize and sanitize the node configs (because some optimizers
+        // rely on the data directory for file reading/writing).
+        node_config.set_data_dir(node_config.get_data_dir().to_path_buf());
+
         // Optimize and sanitize the node config
         let local_config_yaml = get_local_config_yaml(&self.node_config_path)?;
         optimize_and_sanitize_node_config(&mut node_config, local_config_yaml)?;
 
-        // Update the data directory
-        node_config.set_data_dir(node_config.get_data_dir().to_path_buf());
         Ok(node_config)
     }
 }
@@ -105,10 +107,20 @@ fn get_local_config_yaml<P: AsRef<Path>>(node_config_path: P) -> Result<Value, E
 }
 
 /// Extracts the node type and chain ID from the given node config
-fn extract_node_type_and_chain_id(node_config: &NodeConfig) -> Result<(NodeType, ChainId), Error> {
+/// and genesis transaction. If the chain ID cannot be extracted,
+/// None is returned.
+fn extract_node_type_and_chain_id(node_config: &NodeConfig) -> (NodeType, Option<ChainId>) {
+    // Get the node type from the node config
     let node_type = NodeType::extract_from_config(node_config);
-    let chain_id = get_chain_id(node_config)?;
-    Ok((node_type, chain_id))
+
+    // Get the chain ID from the genesis transaction
+    match get_chain_id(node_config) {
+        Ok(chain_id) => (node_type, Some(chain_id)),
+        Err(error) => {
+            println!("Failed to extract the chain ID from the genesis transaction: {:?}! Continuing with None.", error);
+            (node_type, None)
+        },
+    }
 }
 
 /// Optimize and sanitize the node config for the current environment
@@ -117,13 +129,7 @@ fn optimize_and_sanitize_node_config(
     local_config_yaml: Value,
 ) -> Result<(), Error> {
     // Extract the node type and chain ID from the node config
-    let (node_type, chain_id) = match extract_node_type_and_chain_id(node_config) {
-        Ok((node_type, chain_id)) => (node_type, chain_id),
-        Err(error) => {
-            println!("Failed to extract node type and chain ID from node config: {:?}. Skipping config optimization and sanitization!", error);
-            return Ok(());
-        },
-    };
+    let (node_type, chain_id) = extract_node_type_and_chain_id(node_config);
 
     // Print the extracted node type and chain ID
     println!(
@@ -141,39 +147,26 @@ fn optimize_and_sanitize_node_config(
 /// Sanitize the node config for the current environment
 pub fn sanitize_node_config(node_config: &mut NodeConfig) -> Result<(), Error> {
     // Extract the node type and chain ID from the node config
-    let (node_type, chain_id) = match extract_node_type_and_chain_id(node_config) {
-        Ok((node_type, chain_id)) => (node_type, chain_id),
-        Err(error) => {
-            println!("Failed to extract node type and chain ID from node config: {:?}. Skipping config sanitization!", error);
-            return Ok(());
-        },
-    };
+    let (node_type, chain_id) = extract_node_type_and_chain_id(node_config);
 
     // Sanitize the node config
     NodeConfig::sanitize(node_config, node_type, chain_id)
 }
 
-/// Get the chain ID for the node
+/// Get the chain ID for the node from the genesis transaction.
+/// If the chain ID cannot be extracted, an error is returned.
 fn get_chain_id(node_config: &NodeConfig) -> Result<ChainId, Error> {
     // TODO: can we make this less hacky?
 
     // Load the genesis transaction from disk
-    let genesis_txn = get_genesis_txn(node_config).ok_or(Error::InvariantViolation(
-        "The genesis transaction was not found!".to_string(),
-    ))?;
+    let genesis_txn = get_genesis_txn(node_config).ok_or_else(|| {
+        Error::InvariantViolation("The genesis transaction was not found!".to_string())
+    })?;
 
     // Extract the chain ID from the genesis transaction
     match genesis_txn {
         Transaction::GenesisTransaction(WriteSetPayload::Direct(change_set)) => {
-            // Get the chain ID state key
-            let chain_id_access_path = ChainId::access_path().map_err(|error| {
-                Error::InvariantViolation(format!(
-                    "Failed to get the chain ID access path! Error: {:?}",
-                    error
-                ))
-            })?;
-            let chain_id_state_key =
-                StateKey::from(StateKeyInner::AccessPath(chain_id_access_path));
+            let chain_id_state_key = StateKey::on_chain_config::<ChainId>()?;
 
             // Get the write op from the write set
             let write_set_mut = change_set.clone().write_set().clone().into_mut();
@@ -185,17 +178,9 @@ fn get_chain_id(node_config: &NodeConfig) -> Result<ChainId, Error> {
             })?;
 
             // Extract the chain ID from the write op
-            let write_op_bytes = match write_op {
-                WriteOp::Creation(bytes) => bytes,
-                WriteOp::Modification(bytes) => bytes,
-                WriteOp::CreationWithMetadata { data, metadata: _ } => data,
-                WriteOp::ModificationWithMetadata { data, metadata: _ } => data,
-                _ => {
-                    return Err(Error::InvariantViolation(
-                        "The genesis transaction does not contain the correct write op for the chain ID!".into(),
-                    ));
-                },
-            };
+            let write_op_bytes = write_op.bytes().ok_or_else(|| Error::InvariantViolation(
+                "The genesis transaction does not contain the correct write op for the chain ID!".into(),
+            ))?;
             let chain_id = ChainId::deserialize_into_config(write_op_bytes).map_err(|error| {
                 Error::InvariantViolation(format!(
                     "Failed to deserialize the chain ID: {:?}",

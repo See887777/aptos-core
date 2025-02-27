@@ -3,6 +3,7 @@
 
 use crate::{
     accept_type::AcceptType,
+    context::api_spawn_blocking,
     failpoint::fail_point_poem,
     response::{
         api_forbidden, build_not_found, module_not_found, resource_not_found, table_item_not_found,
@@ -17,16 +18,8 @@ use aptos_api_types::{
     MoveModuleBytecode, MoveResource, MoveStructTag, MoveValue, RawStateValueRequest,
     RawTableItemRequest, TableItemRequest, VerifyInput, VerifyInputWithRecursion, U64,
 };
-use aptos_state_view::TStateView;
-use aptos_types::{
-    access_path::AccessPath,
-    state_store::{state_key::StateKey, table::TableHandle},
-};
-use aptos_vm::data_cache::AsMoveResolver;
-use move_core_types::{
-    language_storage::{ModuleId, StructTag},
-    resolver::MoveResolver,
-};
+use aptos_types::state_store::{state_key::StateKey, table::TableHandle, TStateView};
+use move_core_types::language_storage::StructTag;
 use poem_openapi::{
     param::{Path, Query},
     payload::Json,
@@ -35,6 +28,7 @@ use poem_openapi::{
 use std::{convert::TryInto, sync::Arc};
 
 /// API for retrieving individual state
+#[derive(Clone)]
 pub struct StateApi {
     pub context: Arc<Context>,
 }
@@ -76,12 +70,17 @@ impl StateApi {
         fail_point_poem("endpoint_get_account_resource")?;
         self.context
             .check_api_output_enabled("Get account resource", &accept_type)?;
-        self.resource(
-            &accept_type,
-            address.0,
-            resource_type.0,
-            ledger_version.0.map(|inner| inner.0),
-        )
+
+        let api = self.clone();
+        api_spawn_blocking(move || {
+            api.resource(
+                &accept_type,
+                address.0,
+                resource_type.0,
+                ledger_version.0.map(|inner| inner.0),
+            )
+        })
+        .await
     }
 
     /// Get account module
@@ -117,7 +116,11 @@ impl StateApi {
         fail_point_poem("endpoint_get_account_module")?;
         self.context
             .check_api_output_enabled("Get account module", &accept_type)?;
-        self.module(&accept_type, address.0, module_name.0, ledger_version.0)
+        let api = self.clone();
+        api_spawn_blocking(move || {
+            api.module(&accept_type, address.0, module_name.0, ledger_version.0)
+        })
+        .await
     }
 
     /// Get table item
@@ -160,12 +163,16 @@ impl StateApi {
         fail_point_poem("endpoint_get_table_item")?;
         self.context
             .check_api_output_enabled("Get table item", &accept_type)?;
-        self.table_item(
-            &accept_type,
-            table_handle.0,
-            table_item_request.0,
-            ledger_version.0,
-        )
+        let api = self.clone();
+        api_spawn_blocking(move || {
+            api.table_item(
+                &accept_type,
+                table_handle.0,
+                table_item_request.0,
+                ledger_version.0,
+            )
+        })
+        .await
     }
 
     /// Get raw table item
@@ -207,12 +214,16 @@ impl StateApi {
         self.context
             .check_api_output_enabled("Get raw table item", &accept_type)?;
 
-        self.raw_table_item(
-            &accept_type,
-            table_handle.0,
-            table_item_request.0,
-            ledger_version.0,
-        )
+        let api = self.clone();
+        api_spawn_blocking(move || {
+            api.raw_table_item(
+                &accept_type,
+                table_handle.0,
+                table_item_request.0,
+                ledger_version.0,
+            )
+        })
+        .await
     }
 
     /// Get raw state value.
@@ -250,7 +261,8 @@ impl StateApi {
         self.context
             .check_api_output_enabled("Get raw state value", &accept_type)?;
 
-        self.raw_value(&accept_type, request.0, ledger_version.0)
+        let api = self.clone();
+        api_spawn_blocking(move || api.raw_value(&accept_type, request.0, ledger_version.0)).await
     }
 }
 
@@ -266,7 +278,7 @@ impl StateApi {
         resource_type: MoveStructTag,
         ledger_version: Option<u64>,
     ) -> BasicResultWith404<MoveResource> {
-        let resource_type: StructTag = resource_type
+        let tag: StructTag = resource_type
             .try_into()
             .context("Failed to parse given resource type")
             .map_err(|err| {
@@ -275,11 +287,11 @@ impl StateApi {
 
         let (ledger_info, ledger_version, state_view) = self.context.state_view(ledger_version)?;
         let bytes = state_view
-            .as_move_resolver()
-            .get_resource(&address.into(), &resource_type)
+            .as_converter(self.context.db.clone(), self.context.indexer_reader.clone())
+            .find_resource(&state_view, address, &tag)
             .context(format!(
                 "Failed to query DB to check for {} at {}",
-                resource_type, address
+                tag, address
             ))
             .map_err(|err| {
                 BasicErrorWith404::internal_with_code(
@@ -288,16 +300,13 @@ impl StateApi {
                     &ledger_info,
                 )
             })?
-            .ok_or_else(|| {
-                resource_not_found(address, &resource_type, ledger_version, &ledger_info)
-            })?;
+            .ok_or_else(|| resource_not_found(address, &tag, ledger_version, &ledger_info))?;
 
         match accept_type {
             AcceptType::Json => {
                 let resource = state_view
-                    .as_move_resolver()
-                    .as_converter(self.context.db.clone())
-                    .try_into_resource(&resource_type, &bytes)
+                    .as_converter(self.context.db.clone(), self.context.indexer_reader.clone())
+                    .try_into_resource(&tag, &bytes)
                     .context("Failed to deserialize resource data retrieved from DB")
                     .map_err(|err| {
                         BasicErrorWith404::internal_with_code(
@@ -328,9 +337,7 @@ impl StateApi {
         name: IdentifierWrapper,
         ledger_version: Option<U64>,
     ) -> BasicResultWith404<MoveModuleBytecode> {
-        let module_id = ModuleId::new(address.into(), name.into());
-        let access_path = AccessPath::code_access_path(module_id.clone());
-        let state_key = StateKey::access_path(access_path);
+        let state_key = StateKey::module(address.inner(), &name);
         let (ledger_info, ledger_version, state_view) = self
             .context
             .state_view(ledger_version.map(|inner| inner.0))?;
@@ -344,9 +351,7 @@ impl StateApi {
                     &ledger_info,
                 )
             })?
-            .ok_or_else(|| {
-                module_not_found(address, module_id.name(), ledger_version, &ledger_info)
-            })?;
+            .ok_or_else(|| module_not_found(address, &name, ledger_version, &ledger_info))?;
 
         match accept_type {
             AcceptType::Json => {
@@ -401,8 +406,8 @@ impl StateApi {
             .context
             .state_view(ledger_version.map(|inner| inner.0))?;
 
-        let resolver = state_view.as_move_resolver();
-        let converter = resolver.as_converter(self.context.db.clone());
+        let converter =
+            state_view.as_converter(self.context.db.clone(), self.context.indexer_reader.clone());
 
         // Convert key to lookup version for DB
         let vm_key = converter
@@ -423,7 +428,7 @@ impl StateApi {
         })?;
 
         // Retrieve value from the state key
-        let state_key = StateKey::table_item(TableHandle(table_handle.into()), raw_key);
+        let state_key = StateKey::table_item(&TableHandle(table_handle.into()), &raw_key);
         let bytes = state_view
             .get_state_value_bytes(&state_key)
             .context(format!(
@@ -477,10 +482,8 @@ impl StateApi {
             .context
             .state_view(ledger_version.map(|inner| inner.0))?;
 
-        let state_key = StateKey::table_item(
-            TableHandle(table_handle.into()),
-            table_item_request.key.0.clone(),
-        );
+        let state_key =
+            StateKey::table_item(&TableHandle(table_handle.into()), &table_item_request.key.0);
         let bytes = state_view
             .get_state_value_bytes(&state_key)
             .context(format!(
@@ -560,7 +563,7 @@ impl StateApi {
                         "StateKey({}) and Ledger version({})",
                         request.key, ledger_version
                     ),
-                    AptosErrorCode::TableItemNotFound,
+                    AptosErrorCode::StateValueNotFound,
                     &ledger_info,
                 )
             })?;

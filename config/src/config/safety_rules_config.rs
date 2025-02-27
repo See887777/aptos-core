@@ -11,6 +11,7 @@ use crate::{
     },
     keys::ConfigKey,
 };
+use anyhow::bail;
 use aptos_crypto::{bls12381, Uniform};
 use aptos_types::{chain_id::ChainId, network_address::NetworkAddress, waypoint::Waypoint, PeerId};
 use rand::rngs::StdRng;
@@ -72,7 +73,7 @@ impl ConfigSanitizer for SafetyRulesConfig {
     fn sanitize(
         node_config: &NodeConfig,
         node_type: NodeType,
-        chain_id: ChainId,
+        chain_id: Option<ChainId>,
     ) -> Result<(), Error> {
         let sanitizer_name = Self::get_sanitizer_name();
         let safety_rules_config = &node_config.consensus.safety_rules;
@@ -82,40 +83,32 @@ impl ConfigSanitizer for SafetyRulesConfig {
             return Ok(());
         }
 
-        // Verify that the secure backend is appropriate for mainnet validators
-        if chain_id.is_mainnet()
-            && node_type.is_validator()
-            && safety_rules_config.backend.is_in_memory()
-        {
-            return Err(Error::ConfigSanitizerFailed(
-                sanitizer_name,
-                "The secure backend should not be set to in memory storage in mainnet!".to_string(),
-            ));
-        }
-
-        // Verify that the safety rules service is set to local for optimal performance
-        if chain_id.is_mainnet() && !safety_rules_config.service.is_local() {
-            return Err(Error::ConfigSanitizerFailed(
-                sanitizer_name,
-                format!("The safety rules service should be set to local in mainnet for optimal performance! Given config: {:?}", &safety_rules_config.service)
-            ));
-        }
-
-        // Verify that the safety rules test config is not enabled in mainnet
-        if chain_id.is_mainnet() && safety_rules_config.test.is_some() {
-            return Err(Error::ConfigSanitizerFailed(
-                sanitizer_name,
-                "The safety rules test config should not be used in mainnet!".to_string(),
-            ));
-        }
-
-        // Verify that the initial safety rules config is set for validators
-        if node_type.is_validator() {
-            if let InitialSafetyRulesConfig::None = safety_rules_config.initial_safety_rules_config
+        if let Some(chain_id) = chain_id {
+            // Verify that the secure backend is appropriate for mainnet validators
+            if chain_id.is_mainnet()
+                && node_type.is_validator()
+                && safety_rules_config.backend.is_in_memory()
             {
                 return Err(Error::ConfigSanitizerFailed(
                     sanitizer_name,
-                    "The initial safety rules config must be set for validators!".to_string(),
+                    "The secure backend should not be set to in memory storage in mainnet!"
+                        .to_string(),
+                ));
+            }
+
+            // Verify that the safety rules service is set to local for optimal performance
+            if chain_id.is_mainnet() && !safety_rules_config.service.is_local() {
+                return Err(Error::ConfigSanitizerFailed(
+                    sanitizer_name,
+                    format!("The safety rules service should be set to local in mainnet for optimal performance! Given config: {:?}", &safety_rules_config.service)
+                ));
+            }
+
+            // Verify that the safety rules test config is not enabled in mainnet
+            if chain_id.is_mainnet() && safety_rules_config.test.is_some() {
+                return Err(Error::ConfigSanitizerFailed(
+                    sanitizer_name,
+                    "The safety rules test config should not be used in mainnet!".to_string(),
                 ));
             }
         }
@@ -130,15 +123,22 @@ impl ConfigSanitizer for SafetyRulesConfig {
 pub enum InitialSafetyRulesConfig {
     FromFile {
         identity_blob_path: PathBuf,
+        #[serde(skip_serializing_if = "Vec::is_empty", default)]
+        overriding_identity_paths: Vec<PathBuf>,
         waypoint: WaypointConfig,
     },
     None,
 }
 
 impl InitialSafetyRulesConfig {
-    pub fn from_file(identity_blob_path: PathBuf, waypoint: WaypointConfig) -> Self {
+    pub fn from_file(
+        identity_blob_path: PathBuf,
+        overriding_identity_paths: Vec<PathBuf>,
+        waypoint: WaypointConfig,
+    ) -> Self {
         Self::FromFile {
             identity_blob_path,
+            overriding_identity_paths,
             waypoint,
         }
     }
@@ -150,12 +150,53 @@ impl InitialSafetyRulesConfig {
         }
     }
 
-    pub fn identity_blob(&self) -> IdentityBlob {
+    pub fn has_identity_blob(&self) -> bool {
+        match self {
+            InitialSafetyRulesConfig::FromFile { .. } => true,
+            InitialSafetyRulesConfig::None => false,
+        }
+    }
+
+    pub fn identity_blob(&self) -> anyhow::Result<IdentityBlob> {
         match self {
             InitialSafetyRulesConfig::FromFile {
                 identity_blob_path, ..
-            } => IdentityBlob::from_file(identity_blob_path).unwrap(),
-            InitialSafetyRulesConfig::None => panic!("Must have an identity blob"),
+            } => IdentityBlob::from_file(identity_blob_path),
+            InitialSafetyRulesConfig::None => {
+                bail!("loading identity blob failed with missing initial safety rules config")
+            },
+        }
+    }
+
+    pub fn overriding_identity_blobs(&self) -> anyhow::Result<Vec<IdentityBlob>> {
+        match self {
+            InitialSafetyRulesConfig::FromFile {
+                overriding_identity_paths,
+                ..
+            } => {
+                let mut blobs = vec![];
+                for path in overriding_identity_paths {
+                    let blob = IdentityBlob::from_file(path)?;
+                    blobs.push(blob);
+                }
+                Ok(blobs)
+            },
+            InitialSafetyRulesConfig::None => {
+                bail!("loading overriding identity blobs failed with missing initial safety rules config")
+            },
+        }
+    }
+
+    #[cfg(feature = "smoke-test")]
+    pub fn overriding_identity_blob_paths_mut(&mut self) -> &mut Vec<PathBuf> {
+        match self {
+            InitialSafetyRulesConfig::FromFile {
+                overriding_identity_paths,
+                ..
+            } => overriding_identity_paths,
+            InitialSafetyRulesConfig::None => {
+                unreachable!()
+            },
         }
     }
 }
@@ -244,9 +285,12 @@ mod tests {
         };
 
         // Verify that the config sanitizer fails
-        let error =
-            SafetyRulesConfig::sanitize(&node_config, NodeType::Validator, ChainId::mainnet())
-                .unwrap_err();
+        let error = SafetyRulesConfig::sanitize(
+            &node_config,
+            NodeType::Validator,
+            Some(ChainId::mainnet()),
+        )
+        .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
     }
 
@@ -265,8 +309,12 @@ mod tests {
         };
 
         // Verify that the config sanitizer passes because the node is a fullnode
-        SafetyRulesConfig::sanitize(&node_config, NodeType::PublicFullnode, ChainId::mainnet())
-            .unwrap();
+        SafetyRulesConfig::sanitize(
+            &node_config,
+            NodeType::PublicFullnode,
+            Some(ChainId::mainnet()),
+        )
+        .unwrap();
     }
 
     #[test]
@@ -284,9 +332,12 @@ mod tests {
         };
 
         // Verify that the config sanitizer fails
-        let error =
-            SafetyRulesConfig::sanitize(&node_config, NodeType::Validator, ChainId::mainnet())
-                .unwrap_err();
+        let error = SafetyRulesConfig::sanitize(
+            &node_config,
+            NodeType::Validator,
+            Some(ChainId::mainnet()),
+        )
+        .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
     }
 
@@ -305,30 +356,12 @@ mod tests {
         };
 
         // Verify that the config sanitizer fails
-        let error =
-            SafetyRulesConfig::sanitize(&node_config, NodeType::Validator, ChainId::mainnet())
-                .unwrap_err();
-        assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
-    }
-
-    #[test]
-    fn test_sanitize_missing_initial_safety_rules() {
-        // Create a node config with a test config
-        let node_config = NodeConfig {
-            consensus: ConsensusConfig {
-                safety_rules: SafetyRulesConfig {
-                    test: Some(SafetyRulesTestConfig::new(PeerId::random())),
-                    ..Default::default()
-                },
-                ..Default::default()
-            },
-            ..Default::default()
-        };
-
-        // Verify that the config sanitizer fails
-        let error =
-            SafetyRulesConfig::sanitize(&node_config, NodeType::Validator, ChainId::mainnet())
-                .unwrap_err();
+        let error = SafetyRulesConfig::sanitize(
+            &node_config,
+            NodeType::Validator,
+            Some(ChainId::mainnet()),
+        )
+        .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
     }
 }

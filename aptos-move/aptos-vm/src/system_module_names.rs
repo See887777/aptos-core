@@ -15,8 +15,17 @@ pub static ACCOUNT_MODULE: Lazy<ModuleId> = Lazy::new(|| {
     )
 });
 
+pub static ACCOUNT_ABSTRACTION_MODULE: Lazy<ModuleId> = Lazy::new(|| {
+    ModuleId::new(
+        account_config::CORE_CODE_ADDRESS,
+        ident_str!("account_abstraction").to_owned(),
+    )
+});
+
 pub const CREATE_ACCOUNT_IF_DOES_NOT_EXIST: &IdentStr =
     ident_str!("create_account_if_does_not_exist");
+
+pub const AUTHENTICATE: &IdentStr = ident_str!("authenticate");
 
 // Data to resolve basic account and transaction flow functions and structs
 /// The ModuleId for the aptos block module
@@ -27,13 +36,26 @@ pub static BLOCK_MODULE: Lazy<ModuleId> = Lazy::new(|| {
     )
 });
 
-// TZ: TODO: remove these except for the block-related names
-// Names for special functions and structs
-pub const SCRIPT_PROLOGUE_NAME: &IdentStr = ident_str!("script_prologue");
-pub const MULTI_AGENT_SCRIPT_PROLOGUE_NAME: &IdentStr = ident_str!("multi_agent_script_prologue");
-pub const MODULE_PROLOGUE_NAME: &IdentStr = ident_str!("module_prologue");
-pub const USER_EPILOGUE_NAME: &IdentStr = ident_str!("epilogue");
 pub const BLOCK_PROLOGUE: &IdentStr = ident_str!("block_prologue");
+pub const BLOCK_PROLOGUE_EXT: &IdentStr = ident_str!("block_prologue_ext");
+
+pub static RECONFIGURATION_WITH_DKG_MODULE: Lazy<ModuleId> = Lazy::new(|| {
+    ModuleId::new(
+        account_config::CORE_CODE_ADDRESS,
+        ident_str!("reconfiguration_with_dkg").to_owned(),
+    )
+});
+
+pub const FINISH_WITH_DKG_RESULT: &IdentStr = ident_str!("finish_with_dkg_result");
+
+pub static JWKS_MODULE: Lazy<ModuleId> = Lazy::new(|| {
+    ModuleId::new(
+        account_config::CORE_CODE_ADDRESS,
+        ident_str!("jwks").to_owned(),
+    )
+});
+
+pub const UPSERT_INTO_OBSERVED_JWKS: &IdentStr = ident_str!("upsert_into_observed_jwks");
 
 pub static MULTISIG_ACCOUNT_MODULE: Lazy<ModuleId> = Lazy::new(|| {
     ModuleId::new(

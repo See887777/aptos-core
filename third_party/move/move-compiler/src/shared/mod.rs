@@ -8,14 +8,17 @@ use crate::{
     naming::ast::ModuleDefinition,
 };
 use clap::*;
-use move_command_line_common::env::read_bool_env_var;
+use move_command_line_common::env::{
+    bool_to_str, get_move_compiler_block_v1_from_env, read_bool_env_var,
+    MOVE_COMPILER_BLOCK_V1_FLAG,
+};
 use move_ir_types::location::*;
 use move_symbol_pool::Symbol;
 use once_cell::sync::Lazy;
 use petgraph::{algo::astar as petgraph_astar, graphmap::DiGraphMap};
 use std::{
     collections::{BTreeMap, BTreeSet},
-    fmt,
+    fmt::{self, Debug},
     hash::Hash,
     sync::atomic::{AtomicUsize, Ordering as AtomicOrdering},
 };
@@ -157,7 +160,10 @@ impl NamedAddressMaps {
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
-pub struct PackagePaths<Path: Into<Symbol> = Symbol, NamedAddress: Into<Symbol> = Symbol> {
+pub struct PackagePaths<
+    Path: Into<Symbol> + Debug = Symbol,
+    NamedAddress: Into<Symbol> + Debug = Symbol,
+> {
     pub name: Option<Symbol>,
     pub paths: Vec<Path>,
     pub named_address_map: BTreeMap<NamedAddress, NumericalAddress>,
@@ -168,6 +174,31 @@ pub struct IndexedPackagePath {
     pub package: Option<Symbol>,
     pub path: Symbol,
     pub named_address_map: NamedAddressMapIndex,
+}
+
+// Convenient helper functions for dealing with PackagePaths
+pub fn string_vec_to_symbol_vec(string_vec: &[String]) -> Vec<Symbol> {
+    string_vec
+        .iter()
+        .map(|s| Symbol::from(s.as_str()))
+        .collect()
+}
+
+pub fn string_map_to_symbol_map<T: Clone>(string_map: &BTreeMap<String, T>) -> BTreeMap<Symbol, T> {
+    string_map
+        .iter()
+        .map(|(s, v)| (Symbol::from(s.as_str()), v.clone()))
+        .collect()
+}
+
+pub fn string_packagepath_to_symbol_packagepath<T: Clone>(
+    input: &PackagePaths<String, String>,
+) -> PackagePaths {
+    PackagePaths {
+        name: input.name,
+        paths: string_vec_to_symbol_vec(&input.paths),
+        named_address_map: string_map_to_symbol_map(&input.named_address_map),
+    }
 }
 
 pub type AttributeDeriver = dyn Fn(&mut CompilationEnv, &mut ModuleDefinition);
@@ -286,17 +317,23 @@ pub fn format_comma<T: fmt::Display, I: IntoIterator<Item = T>>(items: I) -> Str
 //**************************************************************************************************
 
 pub fn debug_compiler_env_var() -> bool {
-    static DEBUG_COMPILER: Lazy<bool> =
-        Lazy::new(|| read_bool_env_var(cli::MOVE_COMPILER_DEBUG_ENV_VAR));
+    static DEBUG_COMPILER: Lazy<bool> = Lazy::new(|| {
+        read_bool_env_var(cli::MOVE_COMPILER_DEBUG_ENV_VAR)
+            || read_bool_env_var(cli::MVC_DEBUG_ENV_VAR)
+    });
     *DEBUG_COMPILER
 }
 
-pub fn debug_compiler_env_var_str() -> &'static str {
-    if debug_compiler_env_var() {
-        "true"
-    } else {
-        "false"
-    }
+pub fn move_compiler_warn_of_deprecation_use_env_var() -> bool {
+    static WARN_OF_DEPRECATION: Lazy<bool> =
+        Lazy::new(|| read_bool_env_var(cli::MOVE_COMPILER_WARN_OF_DEPRECATION_USE));
+    *WARN_OF_DEPRECATION
+}
+
+pub fn warn_of_deprecation_use_in_aptos_libs_env_var() -> bool {
+    static WARN_OF_DEPRECATION: Lazy<bool> =
+        Lazy::new(|| read_bool_env_var(cli::WARN_OF_DEPRECATION_USE_IN_APTOS_LIBS));
+    *WARN_OF_DEPRECATION
 }
 
 #[derive(Clone, Debug, Eq, PartialEq, Parser)]
@@ -314,12 +351,6 @@ pub struct Flags {
     long = cli::VERIFY,
     )]
     verify: bool,
-
-    /// Compilation flavor.
-    #[clap(
-        long = cli::FLAVOR,
-    )]
-    flavor: String,
 
     /// Bytecode version.
     #[clap(
@@ -348,8 +379,41 @@ pub struct Flags {
     skip_attribute_checks: bool,
 
     /// Debug compiler by printing out internal information
-    #[clap(long = cli::DEBUG_FLAG, default_value=debug_compiler_env_var_str())]
+    #[clap(long = cli::DEBUG_FLAG, default_value=bool_to_str(debug_compiler_env_var()))]
     debug: bool,
+
+    /// Show warnings about use of deprecated functions, modules, constants, etc.
+    /// Note that current value of this constant is "Wdeprecation"
+    #[clap(long = cli::MOVE_COMPILER_WARN_OF_DEPRECATION_USE_FLAG,
+           default_value=bool_to_str(move_compiler_warn_of_deprecation_use_env_var()))]
+    warn_of_deprecation_use: bool,
+
+    /// Show warnings about use of deprecated usage in the Aptos libraries,
+    /// which we should generally not bother users with.
+    /// Note that current value of this constant is "Wdeprecation-aptos"
+    #[clap(long = cli::WARN_OF_DEPRECATION_USE_IN_APTOS_LIBS_FLAG, default_value=bool_to_str(warn_of_deprecation_use_in_aptos_libs_env_var()))]
+    warn_of_deprecation_use_in_aptos_libs: bool,
+
+    /// Show warnings about unused functions, fields, constants, etc.
+    /// Note that the current value of this constant is "Wunused"
+    #[clap(long = cli::WARN_UNUSED_FLAG, default_value="false")]
+    warn_unused: bool,
+
+    /// Support Move 2 language features (up to expansion phase)
+    #[clap(long = cli::LANG_V2_FLAG)]
+    lang_v2: bool,
+
+    /// Support compiler v2 (up to expansion phase)
+    #[clap(long = cli::COMPILER_V2_FLAG)]
+    compiler_v2: bool,
+
+    /// Language version
+    #[clap(long = cli::LANGUAGE_VERSION, default_value="1")]
+    language_version: LanguageVersion,
+
+    /// Block v1 runs past expansion phase
+    #[clap(long = MOVE_COMPILER_BLOCK_V1_FLAG, default_value=bool_to_str(get_move_compiler_block_v1_from_env()))]
+    block_v1_compiler: bool,
 }
 
 impl Flags {
@@ -358,24 +422,24 @@ impl Flags {
             test: false,
             verify: false,
             shadow: false,
-            flavor: "".to_string(),
             bytecode_version: None,
             keep_testing_functions: false,
             skip_attribute_checks: false,
             debug: debug_compiler_env_var(),
+            warn_of_deprecation_use: move_compiler_warn_of_deprecation_use_env_var(),
+            warn_of_deprecation_use_in_aptos_libs: warn_of_deprecation_use_in_aptos_libs_env_var(),
+            warn_unused: false,
+            lang_v2: false,
+            compiler_v2: false,
+            language_version: LanguageVersion::V1,
+            block_v1_compiler: get_move_compiler_block_v1_from_env(),
         }
     }
 
     pub fn testing() -> Self {
         Self {
             test: true,
-            verify: false,
-            shadow: false,
-            flavor: "".to_string(),
-            bytecode_version: None,
-            keep_testing_functions: false,
-            skip_attribute_checks: false,
-            debug: debug_compiler_env_var(),
+            ..Self::empty()
         }
     }
 
@@ -383,12 +447,7 @@ impl Flags {
         Self {
             test: true,
             verify: true,
-            shadow: false,
-            flavor: "".to_string(),
-            bytecode_version: None,
-            keep_testing_functions: false,
-            skip_attribute_checks: false,
-            debug: debug_compiler_env_var(),
+            ..Self::empty()
         }
     }
 
@@ -397,11 +456,7 @@ impl Flags {
             test: false,
             verify: true,
             shadow: true, // allows overlapping between sources and deps
-            flavor: "".to_string(),
-            bytecode_version: None,
-            keep_testing_functions: false,
-            skip_attribute_checks: false,
-            debug: debug_compiler_env_var(),
+            ..Self::empty()
         }
     }
 
@@ -410,17 +465,15 @@ impl Flags {
             test: false,
             verify: true,
             shadow: true, // allows overlapping between sources and deps
-            flavor: "".to_string(),
-            bytecode_version: None,
             keep_testing_functions: true,
-            skip_attribute_checks: false,
-            debug: false,
+            lang_v2: true,
+            ..Self::empty()
         }
     }
 
-    pub fn set_flavor(self, flavor: impl ToString) -> Self {
+    pub fn set_verify(self, value: bool) -> Self {
         Self {
-            flavor: flavor.to_string(),
+            verify: value,
             ..self
         }
     }
@@ -459,10 +512,6 @@ impl Flags {
         self.shadow
     }
 
-    pub fn has_flavor(&self, flavor: &str) -> bool {
-        self.flavor == flavor
-    }
-
     pub fn bytecode_version(&self) -> Option<u32> {
         self.bytecode_version
     }
@@ -478,8 +527,137 @@ impl Flags {
         }
     }
 
+    pub fn warn_of_deprecation_use(&self) -> bool {
+        self.warn_of_deprecation_use
+    }
+
+    pub fn set_warn_of_deprecation_use(self, new_value: bool) -> Self {
+        Self {
+            warn_of_deprecation_use: new_value,
+            ..self
+        }
+    }
+
+    pub fn warn_of_deprecation_use_in_aptos_libs(&self) -> bool {
+        self.warn_of_deprecation_use_in_aptos_libs
+    }
+
+    pub fn set_warn_of_deprecation_use_in_aptos_libs(self, new_value: bool) -> Self {
+        Self {
+            warn_of_deprecation_use_in_aptos_libs: new_value,
+            ..self
+        }
+    }
+
+    pub fn get_block_v1_compiler(&self) -> bool {
+        self.block_v1_compiler
+    }
+
+    pub fn set_block_v1_compiler(self, new_value: bool) -> Self {
+        Self {
+            block_v1_compiler: new_value,
+            ..self
+        }
+    }
+
+    pub fn warn_unused(&self) -> bool {
+        self.warn_unused
+    }
+
+    pub fn set_warn_unused(self, new_value: bool) -> Self {
+        Self {
+            warn_unused: new_value,
+            ..self
+        }
+    }
+
     pub fn debug(&self) -> bool {
         self.debug
+    }
+
+    pub fn lang_v2(&self) -> bool {
+        self.lang_v2
+    }
+
+    pub fn language_version(&self) -> LanguageVersion {
+        self.language_version
+    }
+
+    pub fn set_language_version(self, language_version: LanguageVersion) -> Self {
+        Self {
+            language_version,
+            lang_v2: language_version >= LanguageVersion::V2_0,
+            ..self
+        }
+    }
+
+    pub fn compiler_v2(&self) -> bool {
+        self.compiler_v2
+    }
+
+    pub fn set_compiler_v2(self, v2: bool) -> Self {
+        Self {
+            compiler_v2: v2,
+            ..self
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+pub enum LanguageVersion {
+    #[value(name = "1")]
+    V1,
+    #[value(name = "2")]
+    V2, /* V2 is the same as V2_1, here for the parser */
+    #[value(name = "2.0")]
+    V2_0,
+    #[value(name = "2.1")]
+    V2_1,
+    #[value(name = "2.2")]
+    V2_2,
+}
+
+impl LanguageVersion {
+    fn to_ordinal(self) -> usize {
+        use LanguageVersion::*;
+        match self {
+            V1 => 0,
+            V2_0 => 1,
+            V2 | V2_1 => 2,
+            V2_2 => 3,
+        }
+    }
+}
+
+impl PartialEq<LanguageVersion> for LanguageVersion {
+    fn eq(&self, other: &LanguageVersion) -> bool {
+        self.to_ordinal() == other.to_ordinal()
+    }
+}
+
+impl Eq for LanguageVersion {}
+
+impl PartialOrd<LanguageVersion> for LanguageVersion {
+    fn partial_cmp(&self, other: &LanguageVersion) -> Option<std::cmp::Ordering> {
+        Some(self.to_ordinal().cmp(&other.to_ordinal()))
+    }
+}
+
+impl Ord for LanguageVersion {
+    fn cmp(&self, other: &LanguageVersion) -> std::cmp::Ordering {
+        self.to_ordinal().cmp(&other.to_ordinal())
+    }
+}
+
+impl std::fmt::Display for LanguageVersion {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", match self {
+            LanguageVersion::V1 => "1",
+            LanguageVersion::V2 => "2",
+            LanguageVersion::V2_0 => "2.0",
+            LanguageVersion::V2_1 => "2.1",
+            LanguageVersion::V2_2 => "2.2",
+        })
     }
 }
 
@@ -519,6 +697,7 @@ pub mod known_attributes {
         Verification(VerificationAttribute),
         Native(NativeAttribute),
         Deprecation(DeprecationAttribute),
+        Lint(LintAttribute),
     }
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -546,8 +725,14 @@ pub mod known_attributes {
 
     #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
     pub enum DeprecationAttribute {
-        // Marks deprecated funcitons whose use causes warnings
+        // Marks deprecated functions, types, modules, constants, addresses whose use causes warnings
         Deprecated,
+    }
+
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+    pub enum LintAttribute {
+        // Allow the user to suppress a specific subset of lint warnings.
+        Allow,
     }
 
     impl fmt::Display for AttributePosition {
@@ -584,6 +769,7 @@ pub mod known_attributes {
                 DeprecationAttribute::DEPRECATED_NAME => {
                     Self::Deprecation(DeprecationAttribute::Deprecated)
                 },
+                LintAttribute::SKIP => Self::Lint(LintAttribute::Allow),
                 _ => return None,
             })
         }
@@ -604,6 +790,7 @@ pub mod known_attributes {
             VerificationAttribute::add_attribute_names(table);
             NativeAttribute::add_attribute_names(table);
             DeprecationAttribute::add_attribute_names(table);
+            LintAttribute::add_attribute_names(table);
         }
 
         fn name(&self) -> &str {
@@ -612,6 +799,7 @@ pub mod known_attributes {
                 Self::Verification(a) => a.name(),
                 Self::Native(a) => a.name(),
                 Self::Deprecation(a) => a.name(),
+                Self::Lint(a) => a.name(),
             }
         }
 
@@ -621,6 +809,7 @@ pub mod known_attributes {
                 Self::Verification(a) => a.expected_positions(),
                 Self::Native(a) => a.expected_positions(),
                 Self::Deprecation(a) => a.expected_positions(),
+                Self::Lint(a) => a.expected_positions(),
             }
         }
     }
@@ -788,6 +977,35 @@ pub mod known_attributes {
             });
             match self {
                 Self::Deprecated => &DEPRECATED_POSITIONS,
+            }
+        }
+    }
+
+    impl LintAttribute {
+        const ALL_ATTRIBUTE_NAMES: [&'static str; 1] = [Self::SKIP];
+        pub const SKIP: &'static str = "lint::skip";
+    }
+
+    impl AttributeKind for LintAttribute {
+        fn add_attribute_names(table: &mut BTreeSet<String>) {
+            for str in Self::ALL_ATTRIBUTE_NAMES {
+                table.insert(str.to_string());
+            }
+        }
+
+        fn name(&self) -> &str {
+            match self {
+                Self::Allow => Self::SKIP,
+            }
+        }
+
+        fn expected_positions(&self) -> &'static BTreeSet<AttributePosition> {
+            static ALLOW_POSITIONS: Lazy<BTreeSet<AttributePosition>> = Lazy::new(|| {
+                IntoIterator::into_iter([AttributePosition::Module, AttributePosition::Function])
+                    .collect()
+            });
+            match self {
+                Self::Allow => &ALLOW_POSITIONS,
             }
         }
     }

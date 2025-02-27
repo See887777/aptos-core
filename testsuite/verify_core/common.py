@@ -39,11 +39,14 @@ def clear_artifacts():
         shutil.rmtree(f)
 
 
-def query_backup_latest_version(backup_config_template_path: str) -> int:
+def warm_cache_and_get_latest_backup_version(
+    backup_config_template_path: str,
+) -> int:
     """query latest version in backup, at the same time, pre-heat metadata cache"""
     db_backup_result = subprocess.Popen(
         [
-            "target/release/aptos-db-tool",
+            "target/release/aptos-debugger",
+            "aptos-db",
             "backup",
             "query",
             "backup-storage-state",

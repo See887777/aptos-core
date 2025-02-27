@@ -1,8 +1,7 @@
 openapi: 3.0.0
 info:
   title: Aptos Node API
-  description: The Aptos Node API is a RESTful API for client applications to interact
-    with the Aptos blockchain.
+  description: The Aptos Node API is a RESTful API for client applications to interact with the Aptos blockchain.
   version: 1.2.0
   contact:
     name: Aptos Labs
@@ -122,6 +121,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -179,6 +184,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -224,6 +235,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -277,6 +294,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -322,6 +345,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -375,6 +404,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -420,6 +455,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -547,6 +588,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -604,6 +651,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -649,6 +702,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -702,6 +761,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -747,6 +812,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -800,6 +871,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -849,7 +926,461 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
       operationId: get_account_resources
+  /accounts/{address}/balance/{asset_type}:
+    get:
+      tags:
+      - Accounts
+      summary: Get account balance
+      description: |-
+        Retrieves account balance for coins / fungible asset (only for primary fungible asset store)
+        for a given account, asset type and a specific ledger version.  If the
+        ledger version is not specified in the request, the latest ledger version is used.
+
+        The Aptos nodes prune account state history, via a configurable time window.
+        If the requested ledger version has been pruned, the server responds with a 410.
+      parameters:
+      - name: address
+        schema:
+          $ref: '#/components/schemas/Address'
+        in: path
+        description: Address of account with or without a `0x` prefix
+        required: true
+        deprecated: false
+        explode: true
+      - name: asset_type
+        schema:
+          $ref: '#/components/schemas/AssetType'
+        in: path
+        required: true
+        deprecated: false
+        explode: true
+      - name: ledger_version
+        schema:
+          $ref: '#/components/schemas/U64'
+        in: query
+        description: |-
+          Ledger version to get state of account
+
+          If not provided, it will be the latest version
+        required: false
+        deprecated: false
+        explode: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: integer
+                format: uint64
+            application/x-bcs:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: uint8
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-CURSOR:
+              description: |-
+                Cursor to be used for endpoints that support cursor-based
+                pagination. Pass this to the `start` field of the endpoint
+                on the next call to get the next page of results.
+              deprecated: false
+              schema:
+                type: string
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '403':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '410':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '503':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+      operationId: get_account_balance
   /accounts/{address}/modules:
     get:
       tags:
@@ -972,6 +1503,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -1029,6 +1566,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -1074,6 +1617,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -1127,6 +1676,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -1172,6 +1727,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -1225,6 +1786,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -1274,6 +1841,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
       operationId: get_account_modules
   /spec:
     get:
@@ -1291,6 +1864,20 @@ paths:
               schema:
                 type: string
       operationId: spec
+  /info:
+    get:
+      tags:
+      - General
+      summary: Show some basic info of the node.
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties: {}
+      operationId: info
   /-/healthy:
     get:
       tags:
@@ -1380,6 +1967,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -1437,6 +2030,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '500':
           description: ''
           content:
@@ -1482,6 +2081,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -1585,6 +2190,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -1642,6 +2253,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -1687,6 +2304,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -1740,6 +2363,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -1785,6 +2414,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -1838,6 +2473,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -1883,6 +2524,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -1986,6 +2633,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -2043,6 +2696,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -2088,6 +2747,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -2141,6 +2806,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -2186,6 +2857,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -2239,6 +2916,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -2284,6 +2967,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -2410,6 +3099,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -2467,6 +3162,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -2512,6 +3213,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -2565,6 +3272,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -2610,6 +3323,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -2663,6 +3382,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -2708,6 +3433,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -2839,6 +3570,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -2896,6 +3633,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -2941,6 +3684,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -2994,6 +3743,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -3039,6 +3794,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -3092,6 +3853,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -3137,6 +3904,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -3213,6 +3986,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -3270,6 +4049,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -3315,6 +4100,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -3368,6 +4159,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -3413,6 +4210,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -3520,6 +4323,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -3577,6 +4386,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -3622,6 +4437,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -3675,6 +4496,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -3720,6 +4547,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -3773,6 +4606,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -3818,6 +4657,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -3925,6 +4770,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -3982,6 +4833,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -4027,6 +4884,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -4080,6 +4943,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -4125,6 +4994,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -4178,6 +5053,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -4223,6 +5104,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -4333,6 +5220,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -4390,6 +5283,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -4435,6 +5334,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -4488,6 +5393,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -4533,6 +5444,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -4586,6 +5503,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -4631,6 +5554,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -4739,6 +5668,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -4796,6 +5731,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -4841,6 +5782,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -4894,6 +5841,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -4939,6 +5892,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -4992,6 +5951,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -5037,6 +6002,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -5143,6 +6114,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -5200,6 +6177,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -5245,6 +6228,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -5298,6 +6287,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -5343,6 +6338,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -5396,6 +6397,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -5441,6 +6448,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -5542,6 +6555,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -5599,6 +6618,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -5644,6 +6669,67 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -5697,6 +6783,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '500':
           description: ''
           content:
@@ -5742,6 +6834,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -5795,6 +6893,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '507':
           description: ''
           content:
@@ -5840,6 +6944,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -5934,6 +7044,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -5991,6 +7107,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -6036,6 +7158,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -6089,6 +7217,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -6134,6 +7268,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -6187,6 +7327,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -6236,7 +7382,440 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
       operationId: get_transaction_by_hash
+  /transactions/wait_by_hash/{txn_hash}:
+    get:
+      tags:
+      - Transactions
+      summary: Wait for transaction by hash
+      description: |-
+        Same as /transactions/by_hash, but will wait for a pending transaction to be committed. To be used as a long
+        poll optimization by clients, to reduce latency caused by polling. The "long" poll is generally a second or
+        less but dictated by the server; the client must deal with the result as if the request was a normal
+        /transactions/by_hash request, e.g., by retrying if the transaction is pending.
+      parameters:
+      - name: txn_hash
+        schema:
+          $ref: '#/components/schemas/HashValue'
+        in: path
+        description: Hash of transaction to retrieve
+        required: true
+        deprecated: false
+        explode: true
+      responses:
+        '200':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transaction'
+            application/x-bcs:
+              schema:
+                type: array
+                items:
+                  type: integer
+                  format: uint8
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              required: true
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-CURSOR:
+              description: |-
+                Cursor to be used for endpoints that support cursor-based
+                pagination. Pass this to the `start` field of the endpoint
+                on the next call to get the next page of results.
+              deprecated: false
+              schema:
+                type: string
+        '400':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '403':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '410':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '500':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '503':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+      operationId: wait_transaction_by_hash
   /transactions/by_version/{txn_version}:
     get:
       tags:
@@ -6317,6 +7896,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -6374,6 +7959,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -6419,6 +8010,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -6472,6 +8069,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -6517,6 +8120,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -6570,6 +8179,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -6615,6 +8230,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -6729,6 +8350,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -6786,6 +8413,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -6831,6 +8464,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -6884,6 +8523,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -6929,6 +8574,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -6982,6 +8633,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -7027,6 +8684,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -7135,6 +8798,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -7205,6 +8874,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -7262,6 +8937,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -7307,6 +8988,67 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -7360,6 +9102,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '500':
           description: ''
           content:
@@ -7405,6 +9153,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -7458,6 +9212,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '507':
           description: ''
           content:
@@ -7503,6 +9263,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -7633,6 +9399,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -7690,6 +9462,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -7735,6 +9513,67 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+        '404':
+          description: ''
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AptosError'
+          headers:
+            X-APTOS-CHAIN-ID:
+              description: Chain ID of the current chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint8
+            X-APTOS-LEDGER-VERSION:
+              description: Current ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-OLDEST-VERSION:
+              description: Oldest non-pruned ledger version of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-LEDGER-TIMESTAMPUSEC:
+              description: Current timestamp of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-EPOCH:
+              description: Current epoch of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-BLOCK-HEIGHT:
+              description: Current block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-OLDEST-BLOCK-HEIGHT:
+              description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -7788,6 +9627,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '500':
           description: ''
           content:
@@ -7833,6 +9678,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -7886,6 +9737,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '507':
           description: ''
           content:
@@ -7931,6 +9788,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -8027,6 +9890,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -8084,6 +9953,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -8129,6 +10004,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -8182,6 +10063,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -8227,6 +10114,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -8312,6 +10205,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -8369,6 +10268,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -8414,6 +10319,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -8467,6 +10378,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -8516,6 +10433,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
       operationId: estimate_gas_price
   /view:
     post:
@@ -8544,6 +10467,12 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/ViewRequest'
+          application/x.aptos.view_function+bcs:
+            schema:
+              type: array
+              items:
+                type: integer
+                format: uint8
         required: true
       responses:
         '200':
@@ -8610,6 +10539,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
             X-APTOS-CURSOR:
               description: |-
                 Cursor to be used for endpoints that support cursor-based
@@ -8667,6 +10602,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '403':
           description: ''
           content:
@@ -8712,6 +10653,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -8765,6 +10712,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '410':
           description: ''
           content:
@@ -8810,6 +10763,12 @@ paths:
                 format: uint64
             X-APTOS-OLDEST-BLOCK-HEIGHT:
               description: Oldest non-pruned block height of the chain
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
               deprecated: false
               schema:
                 type: integer
@@ -8863,6 +10822,12 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
         '503':
           description: ''
           content:
@@ -8912,9 +10877,25 @@ paths:
               schema:
                 type: integer
                 format: uint64
+            X-APTOS-GAS-USED:
+              description: The cost of the call in terms of gas
+              deprecated: false
+              schema:
+                type: integer
+                format: uint64
       operationId: view
 components:
   schemas:
+    AbstractionSignature:
+      type: object
+      required:
+      - function_info
+      - auth_data
+      properties:
+        function_info:
+          type: string
+        auth_data:
+          $ref: '#/components/schemas/HexEncodedBytes'
     AccountData:
       type: object
       description: |-
@@ -8942,13 +10923,31 @@ components:
       oneOf:
       - $ref: '#/components/schemas/AccountSignature_Ed25519Signature'
       - $ref: '#/components/schemas/AccountSignature_MultiEd25519Signature'
-      - $ref: '#/components/schemas/AccountSignature_Secp256k1EcdsaSignature'
+      - $ref: '#/components/schemas/AccountSignature_SingleKeySignature'
+      - $ref: '#/components/schemas/AccountSignature_MultiKeySignature'
+      - $ref: '#/components/schemas/AccountSignature_NoAccountSignature'
+      - $ref: '#/components/schemas/AccountSignature_AbstractionSignature'
       discriminator:
         propertyName: type
         mapping:
           ed25519_signature: '#/components/schemas/AccountSignature_Ed25519Signature'
           multi_ed25519_signature: '#/components/schemas/AccountSignature_MultiEd25519Signature'
-          secp256k1_ecdsa_signature: '#/components/schemas/AccountSignature_Secp256k1EcdsaSignature'
+          single_key_signature: '#/components/schemas/AccountSignature_SingleKeySignature'
+          multi_key_signature: '#/components/schemas/AccountSignature_MultiKeySignature'
+          no_account_signature: '#/components/schemas/AccountSignature_NoAccountSignature'
+          abstraction_signature: '#/components/schemas/AccountSignature_AbstractionSignature'
+    AccountSignature_AbstractionSignature:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - abstraction_signature
+            example: abstraction_signature
+      - $ref: '#/components/schemas/AbstractionSignature'
     AccountSignature_Ed25519Signature:
       allOf:
       - type: object
@@ -8957,6 +10956,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - ed25519_signature
             example: ed25519_signature
       - $ref: '#/components/schemas/Ed25519Signature'
     AccountSignature_MultiEd25519Signature:
@@ -8967,9 +10968,11 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - multi_ed25519_signature
             example: multi_ed25519_signature
       - $ref: '#/components/schemas/MultiEd25519Signature'
-    AccountSignature_Secp256k1EcdsaSignature:
+    AccountSignature_MultiKeySignature:
       allOf:
       - type: object
         required:
@@ -8977,8 +10980,34 @@ components:
         properties:
           type:
             type: string
-            example: secp256k1_ecdsa_signature
-      - $ref: '#/components/schemas/Secp256k1EcdsaSignature'
+            enum:
+            - multi_key_signature
+            example: multi_key_signature
+      - $ref: '#/components/schemas/MultiKeySignature'
+    AccountSignature_NoAccountSignature:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - no_account_signature
+            example: no_account_signature
+      - $ref: '#/components/schemas/NoAccountSignature'
+    AccountSignature_SingleKeySignature:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - single_key_signature
+            example: single_key_signature
+      - $ref: '#/components/schemas/SingleKeySignature'
     Address:
       type: string
       format: hex
@@ -9007,8 +11036,7 @@ components:
         vm_error_code:
           type: integer
           format: uint64
-          description: A code providing VM error details when submitting transactions
-            to the VM
+          description: A code providing VM error details when submitting transactions to the VM
     AptosErrorCode:
       type: string
       description: |-
@@ -9036,6 +11064,16 @@ components:
       - web_framework_error
       - bcs_not_supported
       - api_disabled
+    AssetType:
+      type: string
+      format: hex
+      description: |
+        A hex encoded 32 byte Aptos account address or a struct tag.
+
+        This is represented in a string as a 64 character hex string, sometimes
+        shortened by stripping leading 0s, and adding a 0x or
+        Format: `{address}::{module name}::{struct name}`
+      example: 0x1::aptos_coin::AptosCoin
     Block:
       type: object
       description: |-
@@ -9065,6 +11103,109 @@ components:
           description: The transactions in the block in sequential order
           items:
             $ref: '#/components/schemas/Transaction'
+    BlockEndInfo:
+      type: object
+      required:
+      - block_gas_limit_reached
+      - block_output_limit_reached
+      - block_effective_block_gas_units
+      - block_approx_output_size
+      properties:
+        block_gas_limit_reached:
+          type: boolean
+        block_output_limit_reached:
+          type: boolean
+        block_effective_block_gas_units:
+          type: integer
+          format: uint64
+        block_approx_output_size:
+          type: integer
+          format: uint64
+    BlockEpilogueTransaction:
+      type: object
+      description: A block epilogue transaction
+      required:
+      - version
+      - hash
+      - state_change_hash
+      - event_root_hash
+      - gas_used
+      - success
+      - vm_status
+      - accumulator_root_hash
+      - changes
+      - timestamp
+      properties:
+        version:
+          $ref: '#/components/schemas/U64'
+        hash:
+          $ref: '#/components/schemas/HashValue'
+        state_change_hash:
+          $ref: '#/components/schemas/HashValue'
+        event_root_hash:
+          $ref: '#/components/schemas/HashValue'
+        state_checkpoint_hash:
+          $ref: '#/components/schemas/HashValue'
+        gas_used:
+          $ref: '#/components/schemas/U64'
+        success:
+          type: boolean
+          description: Whether the transaction was successful
+        vm_status:
+          type: string
+          description: The VM status of the transaction, can tell useful information in a failure
+        accumulator_root_hash:
+          $ref: '#/components/schemas/HashValue'
+        changes:
+          type: array
+          description: Final state of resources changed by the transaction
+          items:
+            $ref: '#/components/schemas/WriteSetChange'
+        timestamp:
+          $ref: '#/components/schemas/U64'
+        block_end_info:
+          $ref: '#/components/schemas/BlockEndInfo'
+    BlockMetadataExtension:
+      type: object
+      oneOf:
+      - $ref: '#/components/schemas/BlockMetadataExtension_BlockMetadataExtensionEmpty'
+      - $ref: '#/components/schemas/BlockMetadataExtension_BlockMetadataExtensionRandomness'
+      discriminator:
+        propertyName: type
+        mapping:
+          v0: '#/components/schemas/BlockMetadataExtension_BlockMetadataExtensionEmpty'
+          v1: '#/components/schemas/BlockMetadataExtension_BlockMetadataExtensionRandomness'
+    BlockMetadataExtensionEmpty:
+      type: object
+    BlockMetadataExtensionRandomness:
+      type: object
+      properties:
+        randomness:
+          $ref: '#/components/schemas/HexEncodedBytes'
+    BlockMetadataExtension_BlockMetadataExtensionEmpty:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - v0
+            example: v0
+      - $ref: '#/components/schemas/BlockMetadataExtensionEmpty'
+    BlockMetadataExtension_BlockMetadataExtensionRandomness:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - v1
+            example: v1
+      - $ref: '#/components/schemas/BlockMetadataExtensionRandomness'
     BlockMetadataTransaction:
       type: object
       description: |-
@@ -9108,8 +11249,7 @@ components:
           description: Whether the transaction was successful
         vm_status:
           type: string
-          description: The VM status of the transaction, can tell useful information
-            in a failure
+          description: The VM status of the transaction, can tell useful information in a failure
         accumulator_root_hash:
           $ref: '#/components/schemas/HashValue'
         changes:
@@ -9144,6 +11284,67 @@ components:
             format: uint32
         timestamp:
           $ref: '#/components/schemas/U64'
+        block_metadata_extension:
+          allOf:
+          - $ref: '#/components/schemas/BlockMetadataExtension'
+          - description: |-
+              If some, it means the internal txn type is `aptos_types::transaction::Transaction::BlockMetadataExt`.
+              Otherwise, it is `aptos_types::transaction::Transaction::BlockMetadata`.
+
+              NOTE: we could have introduced a new APT txn type to represent the corresponding internal type,
+              but that is a breaking change to the ecosystem.
+
+              NOTE: `oai` does not support `flatten` together with `skip_serializing_if`.
+            default: null
+    DKGResultTransaction:
+      type: object
+      required:
+      - version
+      - hash
+      - state_change_hash
+      - event_root_hash
+      - gas_used
+      - success
+      - vm_status
+      - accumulator_root_hash
+      - changes
+      - events
+      - timestamp
+      - dkg_transcript
+      properties:
+        version:
+          $ref: '#/components/schemas/U64'
+        hash:
+          $ref: '#/components/schemas/HashValue'
+        state_change_hash:
+          $ref: '#/components/schemas/HashValue'
+        event_root_hash:
+          $ref: '#/components/schemas/HashValue'
+        state_checkpoint_hash:
+          $ref: '#/components/schemas/HashValue'
+        gas_used:
+          $ref: '#/components/schemas/U64'
+        success:
+          type: boolean
+          description: Whether the transaction was successful
+        vm_status:
+          type: string
+          description: The VM status of the transaction, can tell useful information in a failure
+        accumulator_root_hash:
+          $ref: '#/components/schemas/HashValue'
+        changes:
+          type: array
+          description: Final state of resources changed by the transaction
+          items:
+            $ref: '#/components/schemas/WriteSetChange'
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/Event'
+        timestamp:
+          $ref: '#/components/schemas/U64'
+        dkg_transcript:
+          $ref: '#/components/schemas/ExportedDKGTranscript'
     DecodedTableData:
       type: object
       description: Decoded table data
@@ -9221,6 +11422,8 @@ components:
         key_type:
           type: string
           description: Deleted key type
+    DeprecatedModuleBundlePayload:
+      type: object
     DirectWriteSet:
       type: object
       required:
@@ -9235,6 +11438,13 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/Event'
+    Ed25519:
+      type: object
+      required:
+      - value
+      properties:
+        value:
+          $ref: '#/components/schemas/HexEncodedBytes'
     Ed25519Signature:
       type: object
       description: A single Ed25519 signature
@@ -9329,6 +11539,67 @@ components:
           $ref: '#/components/schemas/U64'
         account_address:
           $ref: '#/components/schemas/Address'
+    ExportedAggregateSignature:
+      type: object
+      description: A more API-friendly representation of the on-chain `aptos_types::aggregate_signature::AggregateSignature`.
+      required:
+      - signer_indices
+      properties:
+        signer_indices:
+          type: array
+          items:
+            type: integer
+            format: uint64
+        sig:
+          $ref: '#/components/schemas/HexEncodedBytes'
+    ExportedDKGTranscript:
+      type: object
+      required:
+      - epoch
+      - author
+      - payload
+      properties:
+        epoch:
+          $ref: '#/components/schemas/U64'
+        author:
+          $ref: '#/components/schemas/Address'
+        payload:
+          $ref: '#/components/schemas/HexEncodedBytes'
+    ExportedProviderJWKs:
+      type: object
+      description: A more API-friendly representation of the on-chain `aptos_types::jwks::ProviderJWKs`.
+      required:
+      - issuer
+      - version
+      - jwks
+      properties:
+        issuer:
+          type: string
+        version:
+          type: integer
+          format: uint64
+        jwks:
+          type: array
+          items:
+            $ref: '#/components/schemas/JWK'
+    ExportedQuorumCertifiedUpdate:
+      type: object
+      description: A more API-friendly representation of the on-chain `aptos_types::jwks::QuorumCertifiedUpdate`.
+      required:
+      - update
+      - multi_sig
+      properties:
+        update:
+          $ref: '#/components/schemas/ExportedProviderJWKs'
+        multi_sig:
+          $ref: '#/components/schemas/ExportedAggregateSignature'
+    FederatedKeyless:
+      type: object
+      required:
+      - value
+      properties:
+        value:
+          $ref: '#/components/schemas/HexEncodedBytes'
     FeePayerSignature:
       type: object
       description: |-
@@ -9351,8 +11622,7 @@ components:
             $ref: '#/components/schemas/Address'
         secondary_signers:
           type: array
-          description: The associated signatures, in the same order as the secondary
-            addresses
+          description: The associated signatures, in the same order as the secondary addresses
           items:
             $ref: '#/components/schemas/AccountSignature'
         fee_payer_address:
@@ -9398,6 +11668,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - write_set_payload
             example: write_set_payload
       - $ref: '#/components/schemas/WriteSetPayload'
     GenesisTransaction:
@@ -9436,8 +11708,7 @@ components:
           description: Whether the transaction was successful
         vm_status:
           type: string
-          description: The VM status of the transaction, can tell useful information
-            in a failure
+          description: The VM status of the transaction, can tell useful information in a failure
         accumulator_root_hash:
           $ref: '#/components/schemas/HashValue'
         changes:
@@ -9511,15 +11782,79 @@ components:
           description: |-
             Git hash of the build of the API endpoint.  Can be used to determine the exact
             software version used by the API endpoint.
-    ModuleBundlePayload:
+    IndexedSignature:
       type: object
       required:
-      - modules
+      - index
+      - signature
       properties:
-        modules:
+        index:
+          type: integer
+          format: uint8
+        signature:
+          $ref: '#/components/schemas/Signature'
+    JWK:
+      type: object
+      description: The JWK type that can be converted from/to `JWKMoveStruct` but easier to use in rust.
+      anyOf:
+      - $ref: '#/components/schemas/RSA_JWK'
+      - $ref: '#/components/schemas/UnsupportedJWK'
+    JWKUpdateTransaction:
+      type: object
+      required:
+      - version
+      - hash
+      - state_change_hash
+      - event_root_hash
+      - gas_used
+      - success
+      - vm_status
+      - accumulator_root_hash
+      - changes
+      - events
+      - timestamp
+      - quorum_certified_update
+      properties:
+        version:
+          $ref: '#/components/schemas/U64'
+        hash:
+          $ref: '#/components/schemas/HashValue'
+        state_change_hash:
+          $ref: '#/components/schemas/HashValue'
+        event_root_hash:
+          $ref: '#/components/schemas/HashValue'
+        state_checkpoint_hash:
+          $ref: '#/components/schemas/HashValue'
+        gas_used:
+          $ref: '#/components/schemas/U64'
+        success:
+          type: boolean
+          description: Whether the transaction was successful
+        vm_status:
+          type: string
+          description: The VM status of the transaction, can tell useful information in a failure
+        accumulator_root_hash:
+          $ref: '#/components/schemas/HashValue'
+        changes:
+          type: array
+          description: Final state of resources changed by the transaction
+          items:
+            $ref: '#/components/schemas/WriteSetChange'
+        events:
           type: array
           items:
-            $ref: '#/components/schemas/MoveModuleBytecode'
+            $ref: '#/components/schemas/Event'
+        timestamp:
+          $ref: '#/components/schemas/U64'
+        quorum_certified_update:
+          $ref: '#/components/schemas/ExportedQuorumCertifiedUpdate'
+    Keyless:
+      type: object
+      required:
+      - value
+      properties:
+        value:
+          $ref: '#/components/schemas/HexEncodedBytes'
     MoveAbility:
       type: string
     MoveFunction:
@@ -9540,8 +11875,7 @@ components:
           $ref: '#/components/schemas/MoveFunctionVisibility'
         is_entry:
           type: boolean
-          description: Whether the function can be called as an entry function directly
-            in a transaction
+          description: Whether the function can be called as an entry function directly in a transaction
         is_view:
           type: boolean
           description: Whether the function is a view function or not
@@ -9568,8 +11902,7 @@ components:
       properties:
         constraints:
           type: array
-          description: Move abilities tied to the generic type param and associated
-            with the function that uses it
+          description: Move abilities tied to the generic type param and associated with the function that uses it
           items:
             $ref: '#/components/schemas/MoveAbility'
     MoveFunctionVisibility:
@@ -9656,6 +11989,7 @@ components:
       required:
       - name
       - is_native
+      - is_event
       - abilities
       - generic_type_params
       - fields
@@ -9665,6 +11999,9 @@ components:
         is_native:
           type: boolean
           description: Whether the struct is a native struct of Move
+        is_event:
+          type: boolean
+          description: 'Whether the struct is marked with the #[event] annotation'
         abilities:
           type: array
           description: Abilities associated with the struct
@@ -9699,8 +12036,7 @@ components:
       properties:
         constraints:
           type: array
-          description: Move abilities tied to the generic type param and associated
-            with the type that uses it
+          description: Move abilities tied to the generic type param and associated with the type that uses it
           items:
             $ref: '#/components/schemas/MoveAbility'
     MoveStructTag:
@@ -9847,8 +12183,7 @@ components:
             $ref: '#/components/schemas/Address'
         secondary_signers:
           type: array
-          description: The associated signatures, in the same order as the secondary
-            addresses
+          description: The associated signatures, in the same order as the secondary addresses
           items:
             $ref: '#/components/schemas/AccountSignature'
     MultiEd25519Signature:
@@ -9879,6 +12214,25 @@ components:
           description: The number of signatures required for a successful transaction
         bitmap:
           $ref: '#/components/schemas/HexEncodedBytes'
+    MultiKeySignature:
+      type: object
+      description: A multi key signature
+      required:
+      - public_keys
+      - signatures
+      - signatures_required
+      properties:
+        public_keys:
+          type: array
+          items:
+            $ref: '#/components/schemas/PublicKey'
+        signatures:
+          type: array
+          items:
+            $ref: '#/components/schemas/IndexedSignature'
+        signatures_required:
+          type: integer
+          format: uint8
     MultisigPayload:
       type: object
       description: |-
@@ -9893,8 +12247,27 @@ components:
           $ref: '#/components/schemas/MultisigTransactionPayload'
     MultisigTransactionPayload:
       type: object
-      anyOf:
+      oneOf:
+      - $ref: '#/components/schemas/MultisigTransactionPayload_EntryFunctionPayload'
+      discriminator:
+        propertyName: type
+        mapping:
+          entry_function_payload: '#/components/schemas/MultisigTransactionPayload_EntryFunctionPayload'
+    MultisigTransactionPayload_EntryFunctionPayload:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - entry_function_payload
+            example: entry_function_payload
       - $ref: '#/components/schemas/EntryFunctionPayload'
+    NoAccountSignature:
+      type: object
+      description: A placeholder to represent the absence of account signature
     PendingTransaction:
       type: object
       description: A transaction waiting in mempool
@@ -9923,6 +12296,104 @@ components:
           $ref: '#/components/schemas/TransactionPayload'
         signature:
           $ref: '#/components/schemas/TransactionSignature'
+    PublicKey:
+      type: object
+      oneOf:
+      - $ref: '#/components/schemas/PublicKey_Ed25519'
+      - $ref: '#/components/schemas/PublicKey_Secp256k1Ecdsa'
+      - $ref: '#/components/schemas/PublicKey_Secp256r1Ecdsa'
+      - $ref: '#/components/schemas/PublicKey_Keyless'
+      - $ref: '#/components/schemas/PublicKey_FederatedKeyless'
+      discriminator:
+        propertyName: type
+        mapping:
+          ed25519: '#/components/schemas/PublicKey_Ed25519'
+          secp256k1_ecdsa: '#/components/schemas/PublicKey_Secp256k1Ecdsa'
+          secp256r1_ecdsa: '#/components/schemas/PublicKey_Secp256r1Ecdsa'
+          keyless: '#/components/schemas/PublicKey_Keyless'
+          federated_keyless: '#/components/schemas/PublicKey_FederatedKeyless'
+    PublicKey_Ed25519:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - ed25519
+            example: ed25519
+      - $ref: '#/components/schemas/Ed25519'
+    PublicKey_FederatedKeyless:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - federated_keyless
+            example: federated_keyless
+      - $ref: '#/components/schemas/FederatedKeyless'
+    PublicKey_Keyless:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - keyless
+            example: keyless
+      - $ref: '#/components/schemas/Keyless'
+    PublicKey_Secp256k1Ecdsa:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - secp256k1_ecdsa
+            example: secp256k1_ecdsa
+      - $ref: '#/components/schemas/Secp256k1Ecdsa'
+    PublicKey_Secp256r1Ecdsa:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - secp256r1_ecdsa
+            example: secp256r1_ecdsa
+      - $ref: '#/components/schemas/Secp256r1Ecdsa'
+    RSA_JWK:
+      type: object
+      description: |-
+        Move type `0x1::jwks::RSA_JWK` in rust.
+        See its doc in Move for more details.
+      required:
+      - kid
+      - kty
+      - alg
+      - e
+      - n
+      properties:
+        kid:
+          type: string
+        kty:
+          type: string
+        alg:
+          type: string
+        e:
+          type: string
+        n:
+          type: string
     RawTableItemRequest:
       type: object
       description: Table Item request for the GetTableItemRaw API
@@ -9965,17 +12436,93 @@ components:
           $ref: '#/components/schemas/Address'
         script:
           $ref: '#/components/schemas/ScriptPayload'
-    Secp256k1EcdsaSignature:
+    Secp256k1Ecdsa:
       type: object
-      description: A single Secp256k1Ecdsa signature
+      required:
+      - value
+      properties:
+        value:
+          $ref: '#/components/schemas/HexEncodedBytes'
+    Secp256r1Ecdsa:
+      type: object
+      required:
+      - value
+      properties:
+        value:
+          $ref: '#/components/schemas/HexEncodedBytes'
+    Signature:
+      type: object
+      oneOf:
+      - $ref: '#/components/schemas/Signature_Ed25519'
+      - $ref: '#/components/schemas/Signature_Secp256k1Ecdsa'
+      - $ref: '#/components/schemas/Signature_WebAuthn'
+      - $ref: '#/components/schemas/Signature_Keyless'
+      discriminator:
+        propertyName: type
+        mapping:
+          ed25519: '#/components/schemas/Signature_Ed25519'
+          secp256k1_ecdsa: '#/components/schemas/Signature_Secp256k1Ecdsa'
+          web_authn: '#/components/schemas/Signature_WebAuthn'
+          keyless: '#/components/schemas/Signature_Keyless'
+    Signature_Ed25519:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - ed25519
+            example: ed25519
+      - $ref: '#/components/schemas/Ed25519'
+    Signature_Keyless:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - keyless
+            example: keyless
+      - $ref: '#/components/schemas/Keyless'
+    Signature_Secp256k1Ecdsa:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - secp256k1_ecdsa
+            example: secp256k1_ecdsa
+      - $ref: '#/components/schemas/Secp256k1Ecdsa'
+    Signature_WebAuthn:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - web_authn
+            example: web_authn
+      - $ref: '#/components/schemas/WebAuthn'
+    SingleKeySignature:
+      type: object
+      description: A single key signature
       required:
       - public_key
       - signature
       properties:
         public_key:
-          $ref: '#/components/schemas/HexEncodedBytes'
+          $ref: '#/components/schemas/PublicKey'
         signature:
-          $ref: '#/components/schemas/HexEncodedBytes'
+          $ref: '#/components/schemas/Signature'
     StateCheckpointTransaction:
       type: object
       description: A state checkpoint transaction
@@ -10008,8 +12555,7 @@ components:
           description: Whether the transaction was successful
         vm_status:
           type: string
-          description: The VM status of the transaction, can tell useful information
-            in a failure
+          description: The VM status of the transaction, can tell useful information in a failure
         accumulator_root_hash:
           $ref: '#/components/schemas/HashValue'
         changes:
@@ -10076,6 +12622,8 @@ components:
       - $ref: '#/components/schemas/Transaction_GenesisTransaction'
       - $ref: '#/components/schemas/Transaction_BlockMetadataTransaction'
       - $ref: '#/components/schemas/Transaction_StateCheckpointTransaction'
+      - $ref: '#/components/schemas/Transaction_BlockEpilogueTransaction'
+      - $ref: '#/components/schemas/Transaction_ValidatorTransaction'
       discriminator:
         propertyName: type
         mapping:
@@ -10084,21 +12632,35 @@ components:
           genesis_transaction: '#/components/schemas/Transaction_GenesisTransaction'
           block_metadata_transaction: '#/components/schemas/Transaction_BlockMetadataTransaction'
           state_checkpoint_transaction: '#/components/schemas/Transaction_StateCheckpointTransaction'
+          block_epilogue_transaction: '#/components/schemas/Transaction_BlockEpilogueTransaction'
+          validator_transaction: '#/components/schemas/Transaction_ValidatorTransaction'
     TransactionPayload:
       type: object
       description: An enum of the possible transaction payloads
       oneOf:
       - $ref: '#/components/schemas/TransactionPayload_EntryFunctionPayload'
       - $ref: '#/components/schemas/TransactionPayload_ScriptPayload'
-      - $ref: '#/components/schemas/TransactionPayload_ModuleBundlePayload'
+      - $ref: '#/components/schemas/TransactionPayload_DeprecatedModuleBundlePayload'
       - $ref: '#/components/schemas/TransactionPayload_MultisigPayload'
       discriminator:
         propertyName: type
         mapping:
           entry_function_payload: '#/components/schemas/TransactionPayload_EntryFunctionPayload'
           script_payload: '#/components/schemas/TransactionPayload_ScriptPayload'
-          module_bundle_payload: '#/components/schemas/TransactionPayload_ModuleBundlePayload'
+          module_bundle_payload: '#/components/schemas/TransactionPayload_DeprecatedModuleBundlePayload'
           multisig_payload: '#/components/schemas/TransactionPayload_MultisigPayload'
+    TransactionPayload_DeprecatedModuleBundlePayload:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - module_bundle_payload
+            example: module_bundle_payload
+      - $ref: '#/components/schemas/DeprecatedModuleBundlePayload'
     TransactionPayload_EntryFunctionPayload:
       allOf:
       - type: object
@@ -10107,18 +12669,10 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - entry_function_payload
             example: entry_function_payload
       - $ref: '#/components/schemas/EntryFunctionPayload'
-    TransactionPayload_ModuleBundlePayload:
-      allOf:
-      - type: object
-        required:
-        - type
-        properties:
-          type:
-            type: string
-            example: module_bundle_payload
-      - $ref: '#/components/schemas/ModuleBundlePayload'
     TransactionPayload_MultisigPayload:
       allOf:
       - type: object
@@ -10127,6 +12681,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - multisig_payload
             example: multisig_payload
       - $ref: '#/components/schemas/MultisigPayload'
     TransactionPayload_ScriptPayload:
@@ -10137,6 +12693,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - script_payload
             example: script_payload
       - $ref: '#/components/schemas/ScriptPayload'
     TransactionSignature:
@@ -10147,7 +12705,8 @@ components:
       - $ref: '#/components/schemas/TransactionSignature_MultiEd25519Signature'
       - $ref: '#/components/schemas/TransactionSignature_MultiAgentSignature'
       - $ref: '#/components/schemas/TransactionSignature_FeePayerSignature'
-      - $ref: '#/components/schemas/TransactionSignature_Secp256k1EcdsaSignature'
+      - $ref: '#/components/schemas/TransactionSignature_AccountSignature'
+      - $ref: '#/components/schemas/TransactionSignature_NoAccountSignature'
       discriminator:
         propertyName: type
         mapping:
@@ -10155,7 +12714,20 @@ components:
           multi_ed25519_signature: '#/components/schemas/TransactionSignature_MultiEd25519Signature'
           multi_agent_signature: '#/components/schemas/TransactionSignature_MultiAgentSignature'
           fee_payer_signature: '#/components/schemas/TransactionSignature_FeePayerSignature'
-          secp256k1_ecdsa_signature: '#/components/schemas/TransactionSignature_Secp256k1EcdsaSignature'
+          single_sender: '#/components/schemas/TransactionSignature_AccountSignature'
+          no_account_signature: '#/components/schemas/TransactionSignature_NoAccountSignature'
+    TransactionSignature_AccountSignature:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - single_sender
+            example: single_sender
+      - $ref: '#/components/schemas/AccountSignature'
     TransactionSignature_Ed25519Signature:
       allOf:
       - type: object
@@ -10164,6 +12736,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - ed25519_signature
             example: ed25519_signature
       - $ref: '#/components/schemas/Ed25519Signature'
     TransactionSignature_FeePayerSignature:
@@ -10174,6 +12748,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - fee_payer_signature
             example: fee_payer_signature
       - $ref: '#/components/schemas/FeePayerSignature'
     TransactionSignature_MultiAgentSignature:
@@ -10184,6 +12760,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - multi_agent_signature
             example: multi_agent_signature
       - $ref: '#/components/schemas/MultiAgentSignature'
     TransactionSignature_MultiEd25519Signature:
@@ -10194,9 +12772,11 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - multi_ed25519_signature
             example: multi_ed25519_signature
       - $ref: '#/components/schemas/MultiEd25519Signature'
-    TransactionSignature_Secp256k1EcdsaSignature:
+    TransactionSignature_NoAccountSignature:
       allOf:
       - type: object
         required:
@@ -10204,8 +12784,22 @@ components:
         properties:
           type:
             type: string
-            example: secp256k1_ecdsa_signature
-      - $ref: '#/components/schemas/Secp256k1EcdsaSignature'
+            enum:
+            - no_account_signature
+            example: no_account_signature
+      - $ref: '#/components/schemas/NoAccountSignature'
+    Transaction_BlockEpilogueTransaction:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - block_epilogue_transaction
+            example: block_epilogue_transaction
+      - $ref: '#/components/schemas/BlockEpilogueTransaction'
     Transaction_BlockMetadataTransaction:
       allOf:
       - type: object
@@ -10214,6 +12808,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - block_metadata_transaction
             example: block_metadata_transaction
       - $ref: '#/components/schemas/BlockMetadataTransaction'
     Transaction_GenesisTransaction:
@@ -10224,6 +12820,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - genesis_transaction
             example: genesis_transaction
       - $ref: '#/components/schemas/GenesisTransaction'
     Transaction_PendingTransaction:
@@ -10234,6 +12832,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - pending_transaction
             example: pending_transaction
       - $ref: '#/components/schemas/PendingTransaction'
     Transaction_StateCheckpointTransaction:
@@ -10244,6 +12844,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - state_checkpoint_transaction
             example: state_checkpoint_transaction
       - $ref: '#/components/schemas/StateCheckpointTransaction'
     Transaction_UserTransaction:
@@ -10254,8 +12856,22 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - user_transaction
             example: user_transaction
       - $ref: '#/components/schemas/UserTransaction'
+    Transaction_ValidatorTransaction:
+      allOf:
+      - type: object
+        required:
+        - type
+        properties:
+          type:
+            type: string
+            enum:
+            - validator_transaction
+            example: validator_transaction
+      - $ref: '#/components/schemas/ValidatorTransaction'
     TransactionsBatchSingleSubmissionFailure:
       type: object
       description: Information telling which batch submission transactions failed
@@ -10310,6 +12926,25 @@ components:
         We represent u64 values as a string to ensure compatibility with languages such
         as JavaScript that do not parse u64s in JSON natively.
       example: '32425224034'
+    UnsupportedJWK:
+      type: object
+      description: |-
+        Move type `0x1::jwks::UnsupportedJWK` in rust.
+        See its doc in Move for more details.
+      required:
+      - id
+      - payload
+      properties:
+        id:
+          type: array
+          items:
+            type: integer
+            format: uint8
+        payload:
+          type: array
+          items:
+            type: integer
+            format: uint8
     UserTransaction:
       type: object
       description: A transaction submitted by a user to change the state of the blockchain
@@ -10349,8 +12984,7 @@ components:
           description: Whether the transaction was successful
         vm_status:
           type: string
-          description: The VM status of the transaction, can tell useful information
-            in a failure
+          description: The VM status of the transaction, can tell useful information in a failure
         accumulator_root_hash:
           $ref: '#/components/schemas/HashValue'
         changes:
@@ -10379,6 +13013,40 @@ components:
             $ref: '#/components/schemas/Event'
         timestamp:
           $ref: '#/components/schemas/U64'
+    ValidatorTransaction:
+      type: object
+      oneOf:
+      - $ref: '#/components/schemas/ValidatorTransaction_JWKUpdateTransaction'
+      - $ref: '#/components/schemas/ValidatorTransaction_DKGResultTransaction'
+      discriminator:
+        propertyName: validator_transaction_type
+        mapping:
+          observed_jwk_update: '#/components/schemas/ValidatorTransaction_JWKUpdateTransaction'
+          dkg_result: '#/components/schemas/ValidatorTransaction_DKGResultTransaction'
+    ValidatorTransaction_DKGResultTransaction:
+      allOf:
+      - type: object
+        required:
+        - validator_transaction_type
+        properties:
+          validator_transaction_type:
+            type: string
+            enum:
+            - dkg_result
+            example: dkg_result
+      - $ref: '#/components/schemas/DKGResultTransaction'
+    ValidatorTransaction_JWKUpdateTransaction:
+      allOf:
+      - type: object
+        required:
+        - validator_transaction_type
+        properties:
+          validator_transaction_type:
+            type: string
+            enum:
+            - observed_jwk_update
+            example: observed_jwk_update
+      - $ref: '#/components/schemas/JWKUpdateTransaction'
     VersionedEvent:
       type: object
       description: An event from a transaction with a version
@@ -10418,6 +13086,13 @@ components:
           type: array
           description: Arguments of the function
           items: {}
+    WebAuthn:
+      type: object
+      required:
+      - value
+      properties:
+        value:
+          $ref: '#/components/schemas/HexEncodedBytes'
     WriteModule:
       type: object
       description: Write a new module or update an existing one
@@ -10486,6 +13161,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - delete_module
             example: delete_module
       - $ref: '#/components/schemas/DeleteModule'
     WriteSetChange_DeleteResource:
@@ -10496,6 +13173,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - delete_resource
             example: delete_resource
       - $ref: '#/components/schemas/DeleteResource'
     WriteSetChange_DeleteTableItem:
@@ -10506,6 +13185,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - delete_table_item
             example: delete_table_item
       - $ref: '#/components/schemas/DeleteTableItem'
     WriteSetChange_WriteModule:
@@ -10516,6 +13197,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - write_module
             example: write_module
       - $ref: '#/components/schemas/WriteModule'
     WriteSetChange_WriteResource:
@@ -10526,6 +13209,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - write_resource
             example: write_resource
       - $ref: '#/components/schemas/WriteResource'
     WriteSetChange_WriteTableItem:
@@ -10536,6 +13221,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - write_table_item
             example: write_table_item
       - $ref: '#/components/schemas/WriteTableItem'
     WriteSetPayload:
@@ -10554,6 +13241,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - direct_write_set
             example: direct_write_set
       - $ref: '#/components/schemas/DirectWriteSet'
     WriteSet_ScriptWriteSet:
@@ -10564,6 +13253,8 @@ components:
         properties:
           type:
             type: string
+            enum:
+            - script_write_set
             example: script_write_set
       - $ref: '#/components/schemas/ScriptWriteSet'
     WriteTableItem:

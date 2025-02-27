@@ -3,20 +3,20 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #![forbid(unsafe_code)]
-use anyhow::Result;
+use anyhow::{anyhow, Result};
 use aptos_channels::{aptos_channel, message_queues::QueueStyle};
 use aptos_id_generator::{IdGenerator, U64IdGenerator};
 use aptos_infallible::RwLock;
-use aptos_state_view::account_with_state_view::AsAccountWithStateView;
-use aptos_storage_interface::{state_view::DbStateViewAtVersion, DbReader, DbReaderWriter};
+use aptos_storage_interface::{
+    state_store::state_view::db_state_view::DbStateViewAtVersion, DbReader, DbReaderWriter,
+};
 use aptos_types::{
-    account_config::CORE_CODE_ADDRESS,
-    account_view::AccountView,
     contract_event::ContractEvent,
     event::EventKey,
-    move_resource::MoveStorage,
-    on_chain_config,
-    on_chain_config::{OnChainConfig, OnChainConfigPayload, OnChainConfigProvider},
+    on_chain_config::{
+        ConfigurationResource, OnChainConfig, OnChainConfigPayload, OnChainConfigProvider,
+    },
+    state_store::state_key::StateKey,
     transaction::Version,
 };
 use futures::{channel::mpsc::SendError, stream::FusedStream, Stream};
@@ -25,7 +25,6 @@ use std::{
     collections::{HashMap, HashSet},
     fmt,
     iter::FromIterator,
-    ops::Deref,
     pin::Pin,
     sync::Arc,
     task::{Context, Poll},
@@ -39,7 +38,7 @@ mod tests;
 // consumed, they will be dropped (oldest messages first). The remaining messages
 // will be retrieved using FIFO ordering.
 const EVENT_NOTIFICATION_CHANNEL_SIZE: usize = 100;
-const RECONFIG_NOTIFICATION_CHANNEL_SIZE: usize = 1;
+const RECONFIG_NOTIFICATION_CHANNEL_SIZE: usize = 1; // Note: this should be 1 to ensure only the latest reconfig is consumed
 
 #[derive(Clone, Debug, Deserialize, Error, PartialEq, Eq, Serialize)]
 pub enum Error {
@@ -77,6 +76,7 @@ pub trait EventNotificationSender: Send {
 pub struct EventSubscriptionService {
     // Event subscription registry
     event_key_subscriptions: HashMap<EventKey, HashSet<SubscriptionId>>,
+    event_v2_tag_subscriptions: HashMap<String, HashSet<SubscriptionId>>,
     subscription_id_to_event_subscription: HashMap<SubscriptionId, EventSubscription>,
 
     // Reconfig subscription registry
@@ -93,6 +93,7 @@ impl EventSubscriptionService {
     pub fn new(storage: Arc<RwLock<DbReaderWriter>>) -> Self {
         Self {
             event_key_subscriptions: HashMap::new(),
+            event_v2_tag_subscriptions: HashMap::new(),
             subscription_id_to_event_subscription: HashMap::new(),
             reconfig_subscriptions: HashMap::new(),
             storage,
@@ -110,8 +111,9 @@ impl EventSubscriptionService {
     pub fn subscribe_to_events(
         &mut self,
         event_keys: Vec<EventKey>,
+        event_v2_tags: Vec<String>,
     ) -> Result<EventNotificationListener, Error> {
-        if event_keys.is_empty() {
+        if event_keys.is_empty() && event_v2_tags.is_empty() {
             return Err(Error::CannotSubscribeToZeroEventKeys);
         }
 
@@ -140,6 +142,16 @@ impl EventSubscriptionService {
         for event_key in event_keys {
             self.event_key_subscriptions
                 .entry(event_key)
+                .and_modify(|subscriptions| {
+                    subscriptions.insert(subscription_id);
+                })
+                .or_insert_with(|| HashSet::from_iter([subscription_id].iter().cloned()));
+        }
+
+        // Update the event v2 tag subscriptions to include the new subscription
+        for event_tag in event_v2_tags {
+            self.event_v2_tag_subscriptions
+                .entry(event_tag)
                 .and_modify(|subscriptions| {
                     subscriptions.insert(subscription_id);
                 })
@@ -201,33 +213,35 @@ impl EventSubscriptionService {
         let mut reconfig_event_found = false;
         let mut event_subscription_ids_to_notify = HashSet::new();
 
-        // TODO(eventv2): This doesn't deal with module events subscriptions.
         for event in events.iter() {
-            if let ContractEvent::V1(v1) = event {
-                let event_key = v1.key();
-
-                // Process all subscriptions for the current event
-                if let Some(subscription_ids) = self.event_key_subscriptions.get(event_key) {
-                    // Add the event to the subscription's pending event buffer
-                    // and store the subscriptions that will need to notified once all
-                    // events have been processed.
-                    for subscription_id in subscription_ids.iter() {
-                        if let Some(event_subscription) = self
-                            .subscription_id_to_event_subscription
-                            .get_mut(subscription_id)
-                        {
-                            event_subscription.buffer_event(event.clone());
-                            event_subscription_ids_to_notify.insert(*subscription_id);
-                        } else {
-                            return Err(Error::MissingEventSubscription(*subscription_id));
-                        }
+            // Process all subscriptions for the current event
+            let maybe_subscription_ids = match event {
+                ContractEvent::V1(evt) => self.event_key_subscriptions.get(evt.key()),
+                ContractEvent::V2(evt) => {
+                    let tag = evt.type_tag().to_string();
+                    self.event_v2_tag_subscriptions.get(&tag)
+                },
+            };
+            if let Some(subscription_ids) = maybe_subscription_ids {
+                // Add the event to the subscription's pending event buffer
+                // and store the subscriptions that will need to notified once all
+                // events have been processed.
+                for subscription_id in subscription_ids.iter() {
+                    if let Some(event_subscription) = self
+                        .subscription_id_to_event_subscription
+                        .get_mut(subscription_id)
+                    {
+                        event_subscription.buffer_event(event.clone());
+                        event_subscription_ids_to_notify.insert(*subscription_id);
+                    } else {
+                        return Err(Error::MissingEventSubscription(*subscription_id));
                     }
                 }
+            }
 
-                // Take note if a reconfiguration (new epoch) has occurred
-                if *event_key == on_chain_config::new_epoch_event_key() {
-                    reconfig_event_found = true;
-                }
+            // Take note if a reconfiguration (new epoch) has occurred
+            if event.is_new_epoch_event() {
+                reconfig_event_found = true;
             }
         }
 
@@ -280,17 +294,7 @@ impl EventSubscriptionService {
                     error
                 ))
             })?;
-        let aptos_framework_account_view =
-            db_state_view.as_account_with_state_view(&CORE_CODE_ADDRESS);
-
-        let epoch = aptos_framework_account_view
-            .get_configuration_resource()
-            .map_err(|error| {
-                Error::UnexpectedErrorEncountered(format!(
-                    "Failed to fetch Configuration resource {:?}",
-                    error
-                ))
-            })?
+        let epoch = ConfigurationResource::fetch_config(&db_state_view)
             .ok_or_else(|| {
                 Error::UnexpectedErrorEncountered("Configuration resource does not exist!".into())
             })?
@@ -392,11 +396,19 @@ impl DbBackedOnChainConfig {
 }
 
 impl OnChainConfigProvider for DbBackedOnChainConfig {
-    fn get<T: OnChainConfig>(&self) -> anyhow::Result<T> {
+    fn get<T: OnChainConfig>(&self) -> Result<T> {
         let bytes = self
             .reader
-            .deref()
-            .fetch_config_by_version(T::CONFIG_ID, self.version)?;
+            .get_state_value_by_version(&StateKey::on_chain_config::<T>()?, self.version)?
+            .ok_or_else(|| {
+                anyhow!(
+                    "no config {} found in aptos root account state",
+                    T::CONFIG_ID
+                )
+            })?
+            .bytes()
+            .clone();
+
         T::deserialize_into_config(&bytes)
     }
 }

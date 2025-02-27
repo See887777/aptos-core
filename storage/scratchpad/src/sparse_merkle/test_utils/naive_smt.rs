@@ -26,6 +26,15 @@ impl<'a> NaiveSubTree<'a> {
         key: &HashValue,
         cache: &mut Cache,
     ) -> (Option<SparseMerkleLeafNode>, Vec<NodeInProof>) {
+        let (leaf, rev_proof) = self.get_proof_(key, cache);
+        (leaf, rev_proof.into_iter().rev().collect())
+    }
+
+    fn get_proof_(
+        &'a self,
+        key: &HashValue,
+        cache: &mut Cache,
+    ) -> (Option<SparseMerkleLeafNode>, Vec<NodeInProof>) {
         if self.is_empty() {
             (None, Vec::new())
         } else if self.leaves.len() == 1 {
@@ -37,11 +46,11 @@ impl<'a> NaiveSubTree<'a> {
         } else {
             let (left, right) = self.children();
             if key.bit(self.depth) {
-                let (ret_leaf, mut ret_siblings) = right.get_proof(key, cache);
+                let (ret_leaf, mut ret_siblings) = right.get_proof_(key, cache);
                 ret_siblings.push(left.get_node_in_proof(cache));
                 (ret_leaf, ret_siblings)
             } else {
-                let (ret_leaf, mut ret_siblings) = left.get_proof(key, cache);
+                let (ret_leaf, mut ret_siblings) = left.get_proof_(key, cache);
                 ret_siblings.push(right.get_node_in_proof(cache));
                 (ret_leaf, ret_siblings)
             }
@@ -113,7 +122,7 @@ pub struct NaiveSmt {
 }
 
 impl NaiveSmt {
-    pub fn new<V: CryptoHash>(leaves: &[(HashValue, &V)]) -> Self {
+    pub fn new(leaves: &[(HashValue, HashValue)]) -> Self {
         Self::default().update(
             leaves
                 .iter()
@@ -123,11 +132,11 @@ impl NaiveSmt {
         )
     }
 
-    pub fn update<V: CryptoHash>(self, updates: &[(HashValue, Option<&V>)]) -> Self {
+    pub fn update(self, updates: &[(HashValue, Option<HashValue>)]) -> Self {
         let mut leaves = self.leaves.into_iter().collect::<BTreeMap<_, _>>();
         for (key, value_option) in updates {
             if let Some(value) = value_option {
-                leaves.insert(*key, value.hash());
+                leaves.insert(*key, *value);
             } else {
                 leaves.remove(key);
             }

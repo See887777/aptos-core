@@ -5,8 +5,9 @@
 use crate::protocols::wire::handshake::v1::ProtocolId;
 use aptos_config::network_id::NetworkContext;
 use aptos_metrics_core::{
-    register_histogram_vec, register_int_counter_vec, register_int_gauge, register_int_gauge_vec,
-    Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec, IntGauge, IntGaugeVec,
+    exponential_buckets, register_histogram_vec, register_int_counter_vec, register_int_gauge,
+    register_int_gauge_vec, Histogram, HistogramTimer, HistogramVec, IntCounter, IntCounterVec,
+    IntGauge, IntGaugeVec,
 };
 use aptos_netcore::transport::ConnectionOrigin;
 use aptos_short_hex_str::AsShortHexStr;
@@ -20,14 +21,25 @@ pub const RESPONSE_LABEL: &str = "response";
 // some state labels
 pub const CANCELED_LABEL: &str = "canceled";
 pub const DECLINED_LABEL: &str = "declined";
+pub const EXPIRED_LABEL: &str = "expired";
 pub const RECEIVED_LABEL: &str = "received";
 pub const SENT_LABEL: &str = "sent";
 pub const SUCCEEDED_LABEL: &str = "succeeded";
 pub const FAILED_LABEL: &str = "failed";
+pub const UNKNOWN_LABEL: &str = "unknown";
+
+// Connection operation labels
+pub const DIAL_LABEL: &str = "dial";
+pub const DIAL_PEER_LABEL: &str = "dial_peer";
+pub const DISCONNECT_LABEL: &str = "disconnect";
 
 // Direction labels
 pub const INBOUND_LABEL: &str = "inbound";
 pub const OUTBOUND_LABEL: &str = "outbound";
+
+// Peer ping labels
+const CONNECTED_LABEL: &str = "connected";
+const PRE_DIAL_LABEL: &str = "pre_dial";
 
 // Serialization labels
 pub const SERIALIZATION_LABEL: &str = "serialization";
@@ -130,6 +142,27 @@ pub fn pending_connection_upgrades(
         network_context.peer_id().short_str().as_str(),
         direction.as_str(),
     ])
+}
+
+/// A simple counter for tracking network connection operations
+pub static APTOS_NETWORK_CONNECTION_OPERATIONS: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
+        "aptos_network_connection_operations",
+        "Counter for tracking connection operations",
+        &["network_id", "operation", "label"]
+    )
+    .unwrap()
+});
+
+/// Updates the network connection operation metrics with the given operation and label
+pub fn update_network_connection_operation_metrics(
+    network_context: &NetworkContext,
+    operation: String,
+    label: String,
+) {
+    APTOS_NETWORK_CONNECTION_OPERATIONS
+        .with_label_values(&[network_context.network_id().as_str(), &operation, &label])
+        .inc();
 }
 
 pub static APTOS_NETWORK_CONNECTION_UPGRADE_TIME: Lazy<HistogramVec> = Lazy::new(|| {
@@ -409,10 +442,11 @@ pub static PENDING_PEER_MANAGER_DIAL_REQUESTS: Lazy<IntGauge> = Lazy::new(|| {
 });
 
 /// Counter of messages pending in queue to be sent out on the wire.
-pub static PENDING_WIRE_MESSAGES: Lazy<IntGauge> = Lazy::new(|| {
-    register_int_gauge!(
+pub static PENDING_WIRE_MESSAGES: Lazy<IntCounterVec> = Lazy::new(|| {
+    register_int_counter_vec!(
         "aptos_network_pending_wire_messages",
-        "Number of pending wire messages"
+        "Number of pending wire messages",
+        &["state"],
     )
     .unwrap()
 });
@@ -583,7 +617,8 @@ pub static NETWORK_APPLICATION_SERIALIZATION_METRIC: Lazy<HistogramVec> = Lazy::
     register_histogram_vec!(
         "aptos_network_serialization_metric",
         "Time it takes to perform message serialization and deserialization",
-        &["protocol_id", "operation"]
+        &["protocol_id", "operation"],
+        exponential_buckets(/*start=*/ 1e-6, /*factor=*/ 2.0, /*count=*/ 30).unwrap(),
     )
     .unwrap()
 });
@@ -593,4 +628,56 @@ pub fn start_serialization_timer(protocol_id: ProtocolId, operation: &str) -> Hi
     NETWORK_APPLICATION_SERIALIZATION_METRIC
         .with_label_values(&[protocol_id.as_str(), operation])
         .start_timer()
+}
+
+/// Counters related to peer ping times (before and after dialing)
+pub static NETWORK_PEER_PING_TIMES: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
+        "aptos_network_peer_ping_times",
+        "Counters related to peer ping times (before and after dialing)",
+        &["network_id", "label"],
+    )
+    .unwrap()
+});
+
+/// Observes the ping time for a connected peer
+pub fn observe_connected_ping_time(network_context: &NetworkContext, ping_latency_secs: f64) {
+    observe_ping_time(network_context, ping_latency_secs, CONNECTED_LABEL);
+}
+
+/// Observes the ping time for a peer before dialing
+pub fn observe_pre_dial_ping_time(network_context: &NetworkContext, ping_latency_secs: f64) {
+    observe_ping_time(network_context, ping_latency_secs, PRE_DIAL_LABEL);
+}
+
+/// Observes the ping time for the given label
+fn observe_ping_time(network_context: &NetworkContext, ping_latency_secs: f64, label: &str) {
+    NETWORK_PEER_PING_TIMES
+        .with_label_values(&[network_context.network_id().as_str(), label])
+        .observe(ping_latency_secs);
+}
+
+pub static OP_MEASURE: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
+        "aptos_network_measure",
+        "Measures the time and count of an operation",
+        &["op"]
+    )
+    .unwrap()
+});
+
+pub static INBOUND_QUEUE_DELAY: Lazy<HistogramVec> = Lazy::new(|| {
+    register_histogram_vec!(
+        "aptos_network_inbound_queue_time",
+        "Time a message sits in queue between peer socket and app code",
+        &["protocol_id"],
+        exponential_buckets(/*start=*/ 1e-6, /*factor=*/ 2.0, /*count=*/ 20).unwrap(),
+    )
+    .unwrap()
+});
+
+pub fn inbound_queue_delay_observe(protocol_id: ProtocolId, seconds: f64) {
+    INBOUND_QUEUE_DELAY
+        .with_label_values(&[protocol_id.as_str()])
+        .observe(seconds)
 }

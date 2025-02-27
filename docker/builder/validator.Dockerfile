@@ -7,18 +7,13 @@ FROM tools-builder
 FROM debian-base AS validator
 
 RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
-    --mount=type=cache,target=/var/lib/apt,sharing=locked \   
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
     apt-get update && apt-get install --no-install-recommends -y \
-        libssl1.1 \
-        ca-certificates \
         # Needed to run debugging tools like perf
         linux-perf \
         sudo \
         procps \
-        gdb \
-        curl \
-        # postgres client lib required for indexer
-        libpq-dev
+        gdb
 
 ### Because build machine perf might not match run machine perf, we have to symlink
 ### Even if version slightly off, still mostly works
@@ -28,8 +23,7 @@ RUN addgroup --system --gid 6180 aptos && adduser --system --ingroup aptos --no-
 
 RUN mkdir -p /opt/aptos/etc
 COPY --link --from=node-builder /aptos/dist/aptos-node /usr/local/bin/
-COPY --link --from=tools-builder /aptos/dist/aptos-db-tool /usr/local/bin/
-COPY --link --from=tools-builder /aptos/dist/aptos-db-bootstrapper /usr/local/bin/
+COPY --link --from=tools-builder /aptos/dist/aptos-debugger /usr/local/bin/
 
 # Admission control
 EXPOSE 8000

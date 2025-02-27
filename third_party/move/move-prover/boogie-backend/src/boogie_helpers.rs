@@ -31,9 +31,9 @@ pub const TABLE_NATIVE_SPEC_ERROR: &str =
 pub fn boogie_module_name(env: &ModuleEnv<'_>) -> String {
     let mod_name = env.get_name();
     let mod_sym = env.symbol_pool().string(mod_name.name());
-    if mod_sym.as_str() == SCRIPT_MODULE_NAME {
+    if mod_sym.as_str().starts_with(SCRIPT_MODULE_NAME) {
         // <SELF> is not accepted by boogie as a symbol
-        "#SELF#".to_string()
+        mod_sym.to_string().replace(['<', '>'], "#")
     } else if let Address::Numerical(a) = mod_name.addr() {
         // qualify module by address.
         format!("{}_{}", a.short_str_lossless(), mod_sym)
@@ -47,6 +47,16 @@ pub fn boogie_module_name(env: &ModuleEnv<'_>) -> String {
 /// Return boogie name of given structure.
 pub fn boogie_struct_name(struct_env: &StructEnv<'_>, inst: &[Type]) -> String {
     boogie_struct_name_bv(struct_env, inst, false)
+}
+
+pub fn boogie_struct_variant_name(
+    struct_env: &StructEnv<'_>,
+    inst: &[Type],
+    variant: Symbol,
+) -> String {
+    let struct_name = boogie_struct_name(struct_env, inst);
+    let variant_name = variant.display(struct_env.symbol_pool());
+    format!("{}_{}", struct_name, variant_name)
 }
 
 pub fn boogie_struct_name_bv(struct_env: &StructEnv<'_>, inst: &[Type], bv_flag: bool) -> String {
@@ -385,6 +395,14 @@ pub fn boogie_type_suffix_for_struct(
     }
 }
 
+pub fn boogie_type_suffix_for_struct_variant(
+    struct_env: &StructEnv<'_>,
+    inst: &[Type],
+    variant: &Symbol,
+) -> String {
+    boogie_struct_variant_name(struct_env, inst, *variant)
+}
+
 /// Generate suffix after instantiation of type parameters
 pub fn boogie_inst_suffix_bv(env: &GlobalEnv, inst: &[Type], bv_flag: &[bool]) -> String {
     if inst.is_empty() {
@@ -573,6 +591,7 @@ pub fn boogie_value(env: &GlobalEnv, _options: &BoogieOptions, val: &Value) -> S
                 .map(|v| boogie_value(env, _options, v))
                 .collect_vec(),
         ),
+        Value::Tuple(vec) => format!("<<unsupported Tuple({:?})>>", vec),
     }
 }
 

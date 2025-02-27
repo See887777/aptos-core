@@ -5,12 +5,12 @@ use crate::{
     monitor,
     quorum_store::{
         batch_coordinator::BatchCoordinatorCommand, batch_generator::BatchGeneratorCommand,
-        proof_coordinator::ProofCoordinatorCommand, proof_manager::ProofManagerCommand,
+        counters, proof_coordinator::ProofCoordinatorCommand, proof_manager::ProofManagerCommand,
     },
     round_manager::VerifiedEvent,
 };
 use aptos_channels::aptos_channel;
-use aptos_consensus_types::proof_of_store::BatchInfo;
+use aptos_consensus_types::{common::Author, proof_of_store::BatchInfo};
 use aptos_logger::prelude::*;
 use aptos_types::{account_address::AccountAddress, PeerId};
 use futures::StreamExt;
@@ -27,7 +27,7 @@ pub struct QuorumStoreCoordinator {
     remote_batch_coordinator_cmd_tx: Vec<mpsc::Sender<BatchCoordinatorCommand>>,
     proof_coordinator_cmd_tx: mpsc::Sender<ProofCoordinatorCommand>,
     proof_manager_cmd_tx: mpsc::Sender<ProofManagerCommand>,
-    quorum_store_msg_tx: aptos_channel::Sender<AccountAddress, VerifiedEvent>,
+    quorum_store_msg_tx: aptos_channel::Sender<AccountAddress, (Author, VerifiedEvent)>,
 }
 
 impl QuorumStoreCoordinator {
@@ -37,7 +37,7 @@ impl QuorumStoreCoordinator {
         remote_batch_coordinator_cmd_tx: Vec<mpsc::Sender<BatchCoordinatorCommand>>,
         proof_coordinator_cmd_tx: mpsc::Sender<ProofCoordinatorCommand>,
         proof_manager_cmd_tx: mpsc::Sender<ProofManagerCommand>,
-        quorum_store_msg_tx: aptos_channel::Sender<AccountAddress, VerifiedEvent>,
+        quorum_store_msg_tx: aptos_channel::Sender<AccountAddress, (Author, VerifiedEvent)>,
     ) -> Self {
         Self {
             my_peer_id,
@@ -54,21 +54,35 @@ impl QuorumStoreCoordinator {
             monitor!("quorum_store_coordinator_loop", {
                 match cmd {
                     CoordinatorCommand::CommitNotification(block_timestamp, batches) => {
+                        counters::QUORUM_STORE_MSG_COUNT
+                            .with_label_values(&["QSCoordinator::commit_notification"])
+                            .inc();
+                        // TODO: need a callback or not?
+                        self.proof_coordinator_cmd_tx
+                            .send(ProofCoordinatorCommand::CommitNotification(batches.clone()))
+                            .await
+                            .expect("Failed to send to ProofCoordinator");
+
                         self.proof_manager_cmd_tx
                             .send(ProofManagerCommand::CommitNotification(
+                                block_timestamp,
+                                batches.clone(),
+                            ))
+                            .await
+                            .expect("Failed to send to ProofManager");
+
+                        self.batch_generator_cmd_tx
+                            .send(BatchGeneratorCommand::CommitNotification(
                                 block_timestamp,
                                 batches,
                             ))
                             .await
-                            .expect("Failed to send to ProofManager");
-                        // TODO: need a callback or not?
-
-                        self.batch_generator_cmd_tx
-                            .send(BatchGeneratorCommand::CommitNotification(block_timestamp))
-                            .await
                             .expect("Failed to send to BatchGenerator");
                     },
                     CoordinatorCommand::Shutdown(ack_tx) => {
+                        counters::QUORUM_STORE_MSG_COUNT
+                            .with_label_values(&["QSCoordinator::shutdown"])
+                            .inc();
                         // Note: Shutdown is done from the back of the quorum store pipeline to the
                         // front, so senders are always shutdown before receivers. This avoids sending
                         // messages through closed channels during shutdown.
@@ -80,7 +94,10 @@ impl QuorumStoreCoordinator {
                             oneshot::channel();
                         match self.quorum_store_msg_tx.push(
                             self.my_peer_id,
-                            VerifiedEvent::Shutdown(network_listener_shutdown_tx),
+                            (
+                                self.my_peer_id,
+                                VerifiedEvent::Shutdown(network_listener_shutdown_tx),
+                            ),
                         ) {
                             Ok(()) => info!("QS: shutdown network listener sent"),
                             Err(err) => panic!("Failed to send to NetworkListener, Err {:?}", err),

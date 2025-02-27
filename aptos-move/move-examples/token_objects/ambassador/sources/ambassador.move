@@ -3,7 +3,7 @@
 /// The creator of the collection is the only one who can mint and burn ambassador tokens.
 /// Ambassador tokens are souldbound, thus non-transferable. Each ambassador token has a custom attribute
 /// called level. The level of a newly minted token is 0, and can be updated by the creator.
-/// Whenever the level of a token is updated, an event called LevelUpdateEvent is emitted.
+/// Whenever the level of a token is updated, an event called LevelUpdate is emitted.
 /// Each ambassador token has another custom attribute called rank, which is associated with the level.
 /// The rank is determined by the level such that the rank is Bronze if the level is between 0 and 9,
 /// Silver if the level is between 10 and 19, and Gold if the level is 20 or greater.
@@ -21,6 +21,7 @@ module ambassador::ambassador {
     use aptos_token_objects::token;
     use aptos_token_objects::property_map;
     use aptos_framework::event;
+    use aptos_std::string_utils::{to_string};
 
     /// The token does not exist
     const ETOKEN_DOES_NOT_EXIST: u64 = 1;
@@ -56,8 +57,6 @@ module ambassador::ambassador {
         burn_ref: token::BurnRef,
         /// Used to mutate properties
         property_mutator_ref: property_map::MutatorRef,
-        /// Used to emit LevelUpdateEvent
-        level_update_events: event::EventHandle<LevelUpdateEvent>,
         /// the base URI of the token
         base_uri: String,
     }
@@ -68,8 +67,10 @@ module ambassador::ambassador {
         ambassador_level: u64,
     }
 
+    #[event]
     /// The ambassador level update event
-    struct LevelUpdateEvent has drop, store {
+    struct LevelUpdate has drop, store {
+        token: Object<AmbassadorToken>,
         old_level: u64,
         new_level: u64,
     }
@@ -127,16 +128,6 @@ module ambassador::ambassador {
         );
     }
 
-    public entry fun mint_ambassador_token_by_user(
-        user: &signer,
-        creator: &signer,
-        description: String,
-        name: String,
-        uri: String,
-    ) {
-        mint_ambassador_token(creator, description, name, uri, signer::address_of(user));
-    }
-
     /// Mints an ambassador token. This function mints a new ambassador token and transfers it to the
     /// `soul_bound_to` address. The token is minted with level 0 and rank Bronze.
     public entry fun mint_ambassador_token(
@@ -146,20 +137,82 @@ module ambassador::ambassador {
         base_uri: String,
         soul_bound_to: address,
     ) {
+        mint_ambassador_token_impl(creator, description, name, base_uri, soul_bound_to, false);
+    }
+
+    /// Mints an ambassador token. This function mints a new ambassador token and transfers it to the
+    /// `soul_bound_to` address. The token is minted with level 0 and rank Bronze.
+    public entry fun mint_numbered_ambassador_token(
+        creator: &signer,
+        description: String,
+        name: String,
+        base_uri: String,
+        soul_bound_to: address,
+    ) {
+        mint_ambassador_token_impl(creator, description, name, base_uri, soul_bound_to, true);
+    }
+
+    /// Function used for benchmarking.
+    /// Uses multisig to mint to user, with creator permissions.
+    /// Uses users address as unique name of the soulbound token.
+    public entry fun mint_ambassador_token_by_user(
+        user: &signer,
+        creator: &signer,
+        description: String,
+        uri: String,
+    ) {
+        let user_addr = signer::address_of(user);
+        mint_ambassador_token(creator, description, to_string<address>(&user_addr), uri, user_addr);
+    }
+
+    /// Function used for benchmarking.
+    /// Uses multisig to mint to user, with creator permissions.
+    public entry fun mint_numbered_ambassador_token_by_user(
+        user: &signer,
+        creator: &signer,
+        description: String,
+        name: String,
+        uri: String,
+    ) {
+        mint_numbered_ambassador_token(creator, description, name, uri, signer::address_of(user));
+    }
+
+    /// Mints an ambassador token. This function mints a new ambassador token and transfers it to the
+    /// `soul_bound_to` address. The token is minted with level 0 and rank Bronze.
+    fun mint_ambassador_token_impl(
+        creator: &signer,
+        description: String,
+        name: String,
+        base_uri: String,
+        soul_bound_to: address,
+        numbered: bool,
+    ) {
         // The collection name is used to locate the collection object and to create a new token object.
         let collection = string::utf8(COLLECTION_NAME);
         // Creates the ambassador token, and get the constructor ref of the token. The constructor ref
         // is used to generate the refs of the token.
         let uri = base_uri;
         string::append(&mut uri, string::utf8(RANK_BRONZE));
-        let constructor_ref = token::create_named_token(
-            creator,
-            collection,
-            description,
-            name,
-            option::none(),
-            uri,
-        );
+        let constructor_ref = if (numbered) {
+            token::create_numbered_token(
+                creator,
+                collection,
+                description,
+                name,
+                string::utf8(b""),
+                option::none(),
+                uri,
+            )
+        } else {
+            token::create_named_token(
+                creator,
+                collection,
+                description,
+                name,
+                option::none(),
+                uri,
+            )
+        };
 
         // Generates the object signer and the refs. The object signer is used to publish a resource
         // (e.g., AmbassadorLevel) under the token object address. The refs are used to manage the token.
@@ -188,12 +241,11 @@ module ambassador::ambassador {
             string::utf8(RANK_BRONZE)
         );
 
-        // Publishes the AmbassadorToken resource with the refs and the event handle for `LevelUpdateEvent`.
+        // Publishes the AmbassadorToken resource with the refs.
         let ambassador_token = AmbassadorToken {
             mutator_ref,
             burn_ref,
             property_mutator_ref,
-            level_update_events: object::new_event_handle(&object_signer),
             base_uri
         };
         move_to(&object_signer, ambassador_token);
@@ -201,24 +253,41 @@ module ambassador::ambassador {
 
     /// Burns an ambassador token. This function burns the ambassador token and destroys the
     /// AmbassadorToken resource, AmbassadorLevel resource, the event handle, and the property map.
-    public entry fun burn(creator: &signer, token: Object<AmbassadorToken>) acquires AmbassadorToken {
+    public entry fun burn(creator: &signer, token: Object<AmbassadorToken>) acquires AmbassadorToken, AmbassadorLevel {
         authorize_creator(creator, &token);
         let ambassador_token = move_from<AmbassadorToken>(object::object_address(&token));
         let AmbassadorToken {
             mutator_ref: _,
             burn_ref,
             property_mutator_ref,
-            level_update_events,
             base_uri: _
         } = ambassador_token;
 
-        event::destroy_handle(level_update_events);
+        let AmbassadorLevel {
+            ambassador_level: _
+        } = move_from<AmbassadorLevel>(object::object_address(&token));
+
         property_map::burn(property_mutator_ref);
         token::burn(burn_ref);
     }
 
+    /// Function used for benchmarking.
+    /// Uses multisig to mint to user, with creator permissions.
+    /// Uses users address as unique name of the soulbound token.
+    /// Burns token that was minted by mint_ambassador_token_by_user
+    public entry fun burn_named_by_user(user: &signer, creator: &signer) acquires AmbassadorToken, AmbassadorLevel {
+        let collection_name = string::utf8(COLLECTION_NAME);
+        let token_address = token::create_token_address(
+            &signer::address_of(creator),
+            &collection_name,
+            &to_string<address>(&signer::address_of(user)),
+        );
+        let token = object::address_to_object<AmbassadorToken>(token_address);
+        burn(creator, token);
+    }
+
     /// Sets the ambassador level of the token. Only the creator of the token can set the level. When the level
-    /// is updated, the `LevelUpdateEvent` is emitted. The ambassador rank is updated based on the new level.
+    /// is updated, the `LevelUpdate` is emitted. The ambassador rank is updated based on the new level.
     public entry fun set_ambassador_level(
         creator: &signer,
         token: Object<AmbassadorToken>,
@@ -229,10 +298,10 @@ module ambassador::ambassador {
 
         let token_address = object::object_address(&token);
         let ambassador_level = borrow_global_mut<AmbassadorLevel>(token_address);
-        // Emits the `LevelUpdateEvent`.
-        event::emit_event(
-            &mut borrow_global_mut<AmbassadorToken>(token_address).level_update_events,
-            LevelUpdateEvent {
+        // Emits the `LevelUpdate`.
+        event::emit(
+            LevelUpdate {
+                token,
                 old_level: ambassador_level.ambassador_level,
                 new_level: new_ambassador_level,
             }
@@ -340,5 +409,23 @@ module ambassador::ambassador {
         burn(creator, token);
         // Asserts that the token does not exist after burning.
         assert!(!exists<AmbassadorToken>(token_addr), 7);
+    }
+
+    #[test(creator = @0x123, user1 = @0x456)]
+    fun test_mint_burn_by_user(creator: &signer, user1: &signer) acquires AmbassadorToken, AmbassadorLevel {
+        // ------------------------------------------
+        // Creator creates the Ambassador Collection.
+        // ------------------------------------------
+        create_ambassador_collection(creator);
+
+        let token_description = string::utf8(b"Ambassador Token #1 Description");
+        let token_uri = string::utf8(b"Ambassador Token #1 URI/");
+        mint_ambassador_token_by_user(
+            user1,
+            creator,
+            token_description,
+            token_uri
+        );
+        burn_named_by_user(user1, creator);
     }
 }

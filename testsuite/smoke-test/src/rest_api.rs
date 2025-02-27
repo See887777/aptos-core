@@ -12,7 +12,7 @@ use aptos_crypto::ed25519::Ed25519Signature;
 use aptos_forge::{LocalSwarm, NodeExt, Swarm, TransactionType};
 use aptos_global_constants::{DEFAULT_BUCKETS, GAS_UNIT_PRICE};
 use aptos_rest_client::{
-    aptos_api_types::{MoveModuleId, TransactionData},
+    aptos_api_types::{MoveModuleId, TransactionData, ViewFunction, ViewRequest},
     Client,
 };
 use aptos_sdk::move_types::language_storage::StructTag;
@@ -22,11 +22,15 @@ use aptos_types::{
     on_chain_config::{ExecutionConfigV2, OnChainExecutionConfig, TransactionShufflerType},
     transaction::{authenticator::AuthenticationKey, SignedTransaction, Transaction},
 };
+use move_core_types::{
+    ident_str,
+    language_storage::{ModuleId, TypeTag},
+};
 use std::{convert::TryFrom, str::FromStr, sync::Arc, time::Duration};
 
 #[tokio::test]
 async fn test_get_index() {
-    let mut swarm = new_local_swarm_with_aptos(1).await;
+    let swarm = new_local_swarm_with_aptos(1).await;
     let info = swarm.aptos_public_info();
 
     let resp = reqwest::get(info.url().to_owned()).await.unwrap();
@@ -35,7 +39,7 @@ async fn test_get_index() {
 
 #[tokio::test]
 async fn test_basic_client() {
-    let mut swarm = new_local_swarm_with_aptos(1).await;
+    let swarm = new_local_swarm_with_aptos(1).await;
     let mut info = swarm.aptos_public_info();
 
     info.client().get_ledger_information().await.unwrap();
@@ -119,6 +123,8 @@ async fn test_gas_estimation_inner(swarm: &mut LocalSwarm) {
             TransactionType::CoinTransfer {
                 invalid_transaction_ratio: 0,
                 sender_use_account_pool: false,
+                non_conflicting: false,
+                use_fa_transfer: false,
             },
             100,
         )]],
@@ -183,7 +189,6 @@ async fn test_gas_estimation_txns_limit() {
             conf.consensus.quorum_store_poll_time_ms = 200;
             conf.consensus.wait_for_full_blocks_above_pending_blocks = 0;
             conf.consensus.max_sending_block_txns = max_block_txns;
-            conf.consensus.max_sending_block_txns_quorum_store_override = max_block_txns;
             conf.consensus.quorum_store.sender_max_batch_txns = conf
                 .consensus
                 .quorum_store
@@ -222,7 +227,6 @@ async fn test_gas_estimation_gas_used_limit() {
             conf.consensus.quorum_store_poll_time_ms = 200;
             conf.consensus.wait_for_full_blocks_above_pending_blocks = 0;
             conf.consensus.max_sending_block_txns = max_block_txns;
-            conf.consensus.max_sending_block_txns_quorum_store_override = max_block_txns;
             conf.consensus.quorum_store.sender_max_batch_txns = conf
                 .consensus
                 .quorum_store
@@ -242,7 +246,7 @@ async fn test_gas_estimation_gas_used_limit() {
 
 #[tokio::test]
 async fn test_bcs() {
-    let mut swarm = new_local_swarm_with_aptos(1).await;
+    let swarm = new_local_swarm_with_aptos(1).await;
     let mut info = swarm.aptos_public_info();
 
     // Create accounts
@@ -359,7 +363,7 @@ async fn test_bcs() {
             aptos_crypto::HashValue::from(expected_transaction.transaction_info().unwrap().hash);
 
         let bcs_hash = if let Transaction::UserTransaction(ref txn) = bcs_txn.transaction {
-            txn.clone().committed_hash()
+            txn.committed_hash()
         } else {
             panic!("BCS transaction is not a user transaction! {:?}", bcs_txn);
         };
@@ -540,4 +544,44 @@ async fn test_bcs() {
         .into_inner();
     assert_eq!(json_txns.len(), 30);
     assert_eq!(json_txns.len(), bcs_txns.len());
+}
+
+#[tokio::test]
+async fn test_view_function() {
+    let swarm = new_local_swarm_with_aptos(1).await;
+    let info = swarm.aptos_public_info();
+    let client: &Client = info.client();
+
+    let address = AccountAddress::ONE;
+
+    // Non-BCS
+    let view_request = ViewRequest {
+        function: "0x1::coin::is_account_registered".parse().unwrap(),
+        type_arguments: vec!["0x1::aptos_coin::AptosCoin".parse().unwrap()],
+        arguments: vec![serde_json::Value::String(address.to_hex_literal())],
+    };
+
+    // Balance should be 0 and there should only be one return value
+    let json_ret_values = client.view(&view_request, None).await.unwrap().into_inner();
+    assert_eq!(json_ret_values.len(), 1);
+    assert!(!json_ret_values[0].as_bool().unwrap());
+
+    // BCS
+    let bcs_view_request = ViewFunction {
+        module: ModuleId::new(address, ident_str!("coin").into()),
+        function: ident_str!("is_account_registered").into(),
+        ty_args: vec![TypeTag::Struct(Box::new(
+            StructTag::from_str("0x1::aptos_coin::AptosCoin").unwrap(),
+        ))],
+        args: vec![bcs::to_bytes(&address).unwrap()],
+    };
+
+    // Balance should be 0 and there should only be one return value
+    let bcs_ret_values: Vec<bool> = client
+        .view_bcs(&bcs_view_request, None)
+        .await
+        .unwrap()
+        .into_inner();
+    assert_eq!(bcs_ret_values.len(), 1);
+    assert!(!bcs_ret_values[0]);
 }

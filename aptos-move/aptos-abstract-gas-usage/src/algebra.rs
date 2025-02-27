@@ -2,11 +2,12 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use aptos_gas_algebra::{
-    DynamicExpression, Fee, FeePerGasUnit, GasExpression, InternalGas, InternalGasUnit, Octa,
+    DynamicExpression, Fee, FeePerGasUnit, Gas, GasExpression, InternalGas, InternalGasUnit,
+    NumBytes, Octa,
 };
 use aptos_gas_meter::GasAlgebra;
 use aptos_gas_schedule::VMGasParameters;
-use aptos_vm_types::storage::StorageGasParameters;
+use aptos_vm_types::storage::{io_pricing::IoPricing, space_pricing::DiskSpacePricing};
 use move_binary_format::errors::PartialVMResult;
 use std::sync::{Arc, Mutex};
 
@@ -29,12 +30,20 @@ impl<A: GasAlgebra> GasAlgebra for CalibrationAlgebra<A> {
         self.base.vm_gas_params()
     }
 
-    fn storage_gas_params(&self) -> &StorageGasParameters {
-        self.base.storage_gas_params()
+    fn io_pricing(&self) -> &IoPricing {
+        self.base.io_pricing()
+    }
+
+    fn disk_space_pricing(&self) -> &DiskSpacePricing {
+        self.base.disk_space_pricing()
     }
 
     fn balance_internal(&self) -> InternalGas {
         self.base.balance_internal()
+    }
+
+    fn check_consistency(&self) -> PartialVMResult<()> {
+        self.base.check_consistency()
     }
 
     fn charge_execution(
@@ -72,6 +81,10 @@ impl<A: GasAlgebra> GasAlgebra for CalibrationAlgebra<A> {
             .charge_storage_fee(abstract_amount, gas_unit_price)
     }
 
+    fn count_dependency(&mut self, size: NumBytes) -> PartialVMResult<()> {
+        self.base.count_dependency(size)
+    }
+
     fn execution_gas_used(&self) -> InternalGas {
         self.base.execution_gas_used()
     }
@@ -86,5 +99,9 @@ impl<A: GasAlgebra> GasAlgebra for CalibrationAlgebra<A> {
 
     fn storage_fee_used(&self) -> Fee {
         self.base.storage_fee_used()
+    }
+
+    fn inject_balance(&mut self, new_initial_gas: impl Into<Gas>) -> PartialVMResult<()> {
+        self.base.inject_balance(new_initial_gas)
     }
 }

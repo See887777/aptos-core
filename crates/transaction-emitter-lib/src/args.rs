@@ -2,11 +2,10 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use anyhow::{bail, format_err, Result};
-use aptos::common::types::EncodingType;
 use aptos_config::keys::ConfigKey;
-use aptos_crypto::ed25519::Ed25519PrivateKey;
+use aptos_crypto::{ed25519::Ed25519PrivateKey, encoding_type::EncodingType};
 use aptos_sdk::types::chain_id::ChainId;
-use aptos_transaction_generator_lib::args::TransactionTypeArg;
+use aptos_transaction_generator_lib::AccountType;
 use clap::{ArgGroup, Parser};
 use serde::{Deserialize, Serialize};
 use std::{
@@ -71,15 +70,17 @@ pub struct ClusterArgs {
     #[clap(long, conflicts_with = "targets")]
     pub targets_file: Option<String>,
 
-    /// If set, try to use public peers instead of localhost.
+    // If the chain_id is not provided, it is derived from the targets.
     #[clap(long)]
-    pub reuse_accounts: bool,
-
-    #[clap(long, default_value_t = ChainId::test())]
-    pub chain_id: ChainId,
+    pub chain_id: Option<ChainId>,
 
     #[clap(flatten)]
     pub coin_source_args: CoinSourceArgs,
+
+    /// Key to use for ratelimiting purposes with the node API. This value will be used
+    /// as `Authorization: Bearer <key>`.
+    #[clap(long, env)]
+    pub node_api_key: Option<String>,
 }
 
 impl ClusterArgs {
@@ -128,41 +129,14 @@ pub struct EmitArgs {
     #[clap(long, default_value_t = 60)]
     pub duration: u64,
 
-    #[clap(
-        long,
-        value_enum,
-        default_value = "coin-transfer",
-        num_args = 1..,
-        ignore_case = true
-    )]
-    pub transaction_type: Vec<TransactionTypeArg>,
-
-    /// Number of copies of the modules that will be published,
-    /// under separate accounts, creating independent contracts,
-    /// removing contention.
-    /// For example for NFT minting, setting to 1 will be equivalent
-    /// to minting from single collection,
-    /// setting to 20 means minting from 20 collections in parallel.
-    #[clap(long)]
-    pub module_working_set_size: Option<usize>,
-
-    /// Whether to use burner accounts for the sender.
-    /// For example when transaction can only be done once per account.
-    /// (pool needs to be populated by account-creation transactions)
-    #[clap(long)]
-    pub sender_use_account_pool: Option<bool>,
-
-    #[clap(long, num_args = 0..)]
-    pub transaction_weights: Vec<usize>,
-
-    #[clap(long, num_args = 0..)]
-    pub transaction_phases: Vec<usize>,
-
     #[clap(long)]
     pub gas_price: Option<u64>,
 
     #[clap(long)]
     pub max_gas_per_txn: Option<u64>,
+
+    #[clap(long)]
+    pub init_max_gas_per_txn: Option<u64>,
 
     #[clap(long)]
     pub init_gas_price_multiplier: Option<u64>,
@@ -174,7 +148,23 @@ pub struct EmitArgs {
     pub expected_gas_per_txn: Option<u64>,
 
     #[clap(long)]
+    pub expected_gas_per_transfer: Option<u64>,
+
+    #[clap(long)]
+    pub expected_gas_per_account_create: Option<u64>,
+
+    #[clap(long, conflicts_with = "num_accounts")]
     pub max_transactions_per_account: Option<usize>,
+
+    #[clap(long, conflicts_with = "max_transactions_per_account")]
+    pub num_accounts: Option<usize>,
+
+    #[clap(long, default_value = "false")]
+    /// Skip minting account during initialization
+    pub skip_funding_accounts: bool,
+
+    #[clap(long)]
+    pub latency_polling_interval_s: Option<f32>,
 
     // In cases you want to run txn emitter from multiple machines,
     // and want to make sure that initialization succeeds
@@ -189,6 +179,55 @@ pub struct EmitArgs {
     //   basically creating a new source account (to then create seed accounts from).
     #[clap(long)]
     pub coordination_delay_between_instances: Option<u64>,
+
+    #[clap(long)]
+    pub account_minter_seed: Option<String>,
+
+    #[clap(long)]
+    pub coins_per_account_override: Option<u64>,
+
+    #[clap(flatten)]
+    pub account_type_args: AccountTypeArgs,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Parser, Serialize)]
+pub struct AccountTypeArgs {
+    #[clap(long, value_enum, default_value = "local", ignore_case = true)]
+    pub account_type: AccountType,
+
+    #[clap(long, value_parser = ConfigKey::<Ed25519PrivateKey>::from_encoded_string, requires = "proof_file_path", requires = "epk_expiry_date_secs", requires = "keyless_jwt")]
+    pub keyless_ephem_secret_key: Option<ConfigKey<Ed25519PrivateKey>>,
+
+    #[clap(long)]
+    pub proof_file_path: Option<String>,
+
+    #[clap(long)]
+    pub epk_expiry_date_secs: Option<u64>,
+
+    #[clap(long)]
+    pub keyless_jwt: Option<String>,
+}
+
+#[derive(Clone, Debug, Default, Deserialize, Parser, Serialize)]
+pub struct CreateAccountsArgs {
+    /// Number of accounts to create
+    #[clap(long)]
+    pub count: usize,
+
+    /// The amount of gas needed to create an account
+    #[clap(long)]
+    pub max_gas_per_txn: u64,
+
+    /// Optional seed, which is compatible with emit-tx. If no seed is provided, a random seed is
+    /// used and printed.
+    #[clap(long)]
+    pub account_minter_seed: Option<String>,
+
+    #[clap(long)]
+    pub keyless_jwt: Option<String>,
+
+    #[clap(long)]
+    pub proof_file_path: Option<String>,
 }
 
 fn parse_target(target: &str) -> Result<Url> {

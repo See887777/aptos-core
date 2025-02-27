@@ -4,7 +4,9 @@
 
 use aptos_framework::{extended_checks, path_in_crate};
 use aptos_gas_schedule::{MiscGasParameters, NativeGasParameters, LATEST_GAS_FEATURE_VERSION};
-use aptos_types::on_chain_config::{Features, TimedFeaturesBuilder};
+use aptos_types::on_chain_config::{
+    aptos_test_feature_flags_genesis, Features, TimedFeaturesBuilder,
+};
 use aptos_vm::natives;
 use move_cli::base::test::{run_move_unit_tests, UnitTestResult};
 use move_package::CompilerConfig;
@@ -14,21 +16,31 @@ use tempfile::tempdir;
 
 fn run_tests_for_pkg(path_to_pkg: impl Into<String>) {
     let pkg_path = path_in_crate(path_to_pkg);
+    let compiler_config = CompilerConfig {
+        known_attributes: extended_checks::get_all_attribute_names().clone(),
+        ..Default::default()
+    };
+    let build_config = move_package::BuildConfig {
+        test_mode: true,
+        install_dir: Some(tempdir().unwrap().path().to_path_buf()),
+        compiler_config: compiler_config.clone(),
+        full_model_generation: true, // Run extended checks also on test code
+        ..Default::default()
+    };
+
+    let utc = UnitTestingConfig {
+        filter: std::env::var("TEST_FILTER").ok(),
+        report_statistics: matches!(std::env::var("REPORT_STATS"), Ok(s) if s.as_str() == "1"),
+        ..Default::default()
+    };
     let ok = run_move_unit_tests(
         &pkg_path,
-        move_package::BuildConfig {
-            test_mode: true,
-            install_dir: Some(tempdir().unwrap().path().to_path_buf()),
-            compiler_config: CompilerConfig {
-                known_attributes: extended_checks::get_all_attribute_names().clone(),
-                ..Default::default()
-            },
-            full_model_generation: true, // Run extended checks also on test code
-            ..Default::default()
-        },
+        build_config.clone(),
         // TODO(Gas): double check if this is correct
-        UnitTestingConfig::default_with_bound(Some(100_000)),
+        utc,
         aptos_test_natives(),
+        aptos_test_feature_flags_genesis(),
+        /* gas limit */ Some(100_000),
         /* cost_table */ None,
         /* compute_coverage */ false,
         &mut std::io::stdout(),

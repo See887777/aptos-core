@@ -38,7 +38,7 @@ jobs:
     timeout-minutes: ${{ inputs.TIMEOUT_MINUTES }}
     runs-on: ${{ inputs.RUNS_ON }}
     steps:
-      - uses: actions/checkout@v3
+      - uses: actions/checkout@v4
         with:
           ref: ${{ inputs.GIT_SHA }}
 
@@ -60,7 +60,7 @@ jobs:
 
       - name: Build CLI binaries in release mode
         shell: bash
-        run: cargo build --release -p aptos-db-tool
+        run: cargo build --release -p aptos-debugger
 
       - name: Run module-verify in parallel
         shell: bash

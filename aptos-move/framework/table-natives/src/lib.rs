@@ -1,4 +1,5 @@
 // Copyright © Aptos Foundation
+// SPDX-License-Identifier: Apache-2.0
 
 // Copyright (c) The Diem Core Contributors
 // Copyright (c) The Move Contributors
@@ -15,6 +16,7 @@ use aptos_native_interface::{
     SafeNativeResult,
 };
 use better_any::{Tid, TidAble};
+use bytes::Bytes;
 use move_binary_format::errors::{PartialVMError, PartialVMResult};
 use move_core_types::{
     account_address::AccountAddress, effects::Op, gas_algebra::NumBytes, identifier::Identifier,
@@ -22,12 +24,11 @@ use move_core_types::{
 };
 // ===========================================================================================
 // Public Data Structures and Constants
-pub use move_table_extension::{
-    TableChange, TableChangeSet, TableHandle, TableInfo, TableResolver,
-};
+pub use move_table_extension::{TableHandle, TableInfo, TableResolver};
 use move_vm_runtime::native_functions::NativeFunctionTable;
 use move_vm_types::{
     loaded_data::runtime_types::Type,
+    value_serde::{FunctionValueExtension, ValueSerDeContext},
     values::{GlobalValue, Reference, StructRef, Value},
 };
 use sha3::{Digest, Sha3_256};
@@ -36,6 +37,7 @@ use std::{
     cell::RefCell,
     collections::{btree_map::Entry, BTreeMap, BTreeSet, VecDeque},
     mem::drop,
+    sync::Arc,
 };
 
 /// The native table context extension. This needs to be attached to the NativeContextExtensions
@@ -69,16 +71,37 @@ struct TableData {
     tables: BTreeMap<TableHandle, Table>,
 }
 
+/// A structure containing information about the layout of a value stored in a
+/// table. Needed in order to replace aggregator and snapshot values with
+/// identifiers.
+struct LayoutInfo {
+    layout: Arc<MoveTypeLayout>,
+    has_identifier_mappings: bool,
+}
+
 /// A structure representing a single table.
 struct Table {
     handle: TableHandle,
     key_layout: MoveTypeLayout,
-    value_layout: MoveTypeLayout,
+    value_layout_info: LayoutInfo,
     content: BTreeMap<Vec<u8>, GlobalValue>,
 }
 
 /// The field index of the `handle` field in the `Table` Move struct.
 const HANDLE_FIELD_INDEX: usize = 0;
+
+/// A table change set.
+#[derive(Default)]
+pub struct TableChangeSet {
+    pub new_tables: BTreeMap<TableHandle, TableInfo>,
+    pub removed_tables: BTreeSet<TableHandle>,
+    pub changes: BTreeMap<TableHandle, TableChange>,
+}
+
+/// A change of a single table.
+pub struct TableChange {
+    pub entries: BTreeMap<Vec<u8>, Op<(Bytes, Option<Arc<MoveTypeLayout>>)>>,
+}
 
 // =========================================================================================
 // Implementation of Native Table Context
@@ -95,7 +118,10 @@ impl<'a> NativeTableContext<'a> {
     }
 
     /// Computes the change set from a NativeTableContext.
-    pub fn into_change_set(self) -> PartialVMResult<TableChangeSet> {
+    pub fn into_change_set(
+        self,
+        function_value_extension: &impl FunctionValueExtension,
+    ) -> PartialVMResult<TableChangeSet> {
         let NativeTableContext { table_data, .. } = self;
         let TableData {
             new_tables,
@@ -105,7 +131,7 @@ impl<'a> NativeTableContext<'a> {
         let mut changes = BTreeMap::new();
         for (handle, table) in tables {
             let Table {
-                value_layout,
+                value_layout_info,
                 content,
                 ..
             } = table;
@@ -118,12 +144,24 @@ impl<'a> NativeTableContext<'a> {
 
                 match op {
                     Op::New(val) => {
-                        let bytes = serialize(&value_layout, &val)?;
-                        entries.insert(key, Op::New(bytes.into()));
+                        entries.insert(
+                            key,
+                            Op::New(serialize_value(
+                                function_value_extension,
+                                &value_layout_info,
+                                &val,
+                            )?),
+                        );
                     },
                     Op::Modify(val) => {
-                        let bytes = serialize(&value_layout, &val)?;
-                        entries.insert(key, Op::Modify(bytes.into()));
+                        entries.insert(
+                            key,
+                            Op::Modify(serialize_value(
+                                function_value_extension,
+                                &value_layout_info,
+                                &val,
+                            )?),
+                        );
                     },
                     Op::Delete => {
                         entries.insert(key, Op::Delete);
@@ -155,11 +193,11 @@ impl TableData {
         Ok(match self.tables.entry(handle) {
             Entry::Vacant(e) => {
                 let key_layout = context.type_to_type_layout(key_ty)?;
-                let value_layout = context.type_to_type_layout(value_ty)?;
+                let value_layout_info = LayoutInfo::from_value_ty(context, value_ty)?;
                 let table = Table {
                     handle,
                     key_layout,
-                    value_layout,
+                    value_layout_info,
                     content: Default::default(),
                 };
                 e.insert(table)
@@ -169,22 +207,47 @@ impl TableData {
     }
 }
 
+impl LayoutInfo {
+    fn from_value_ty(context: &SafeNativeContext, value_ty: &Type) -> PartialVMResult<Self> {
+        let (layout, has_identifier_mappings) =
+            context.type_to_type_layout_with_identifier_mappings(value_ty)?;
+        Ok(Self {
+            layout: Arc::new(layout),
+            has_identifier_mappings,
+        })
+    }
+}
+
 impl Table {
     fn get_or_create_global_value(
         &mut self,
-        context: &NativeTableContext,
+        function_value_extension: &dyn FunctionValueExtension,
+        table_context: &NativeTableContext,
         key: Vec<u8>,
     ) -> PartialVMResult<(&mut GlobalValue, Option<Option<NumBytes>>)> {
         Ok(match self.content.entry(key) {
             Entry::Vacant(entry) => {
-                let (gv, loaded) = match context
+                // If there is an identifier mapping, we need to pass layout to
+                // ensure it gets recorded.
+                let data = table_context
                     .resolver
-                    .resolve_table_entry(&self.handle, entry.key())
-                    .map_err(|err| {
-                        partial_extension_error(format!("remote table resolver failure: {}", err))
-                    })? {
+                    .resolve_table_entry_bytes_with_layout(
+                        &self.handle,
+                        entry.key(),
+                        if self.value_layout_info.has_identifier_mappings {
+                            Some(&self.value_layout_info.layout)
+                        } else {
+                            None
+                        },
+                    )?;
+
+                let (gv, loaded) = match data {
                     Some(val_bytes) => {
-                        let val = deserialize(&self.value_layout, &val_bytes)?;
+                        let val = deserialize_value(
+                            function_value_extension,
+                            &val_bytes,
+                            &self.value_layout_info,
+                        )?;
                         (
                             GlobalValue::cached(val)?,
                             Some(NumBytes::new(val_bytes.len() as u64)),
@@ -239,6 +302,19 @@ fn charge_load_cost(
 
     match loaded {
         Some(Some(num_bytes)) => {
+            let num_bytes = if context.gas_feature_version() >= 12 {
+                // Round up bytes to whole pages
+                // TODO(gas): make PAGE_SIZE configurable
+                const PAGE_SIZE: u64 = 4096;
+
+                let loaded_u64: u64 = num_bytes.into();
+                let r = loaded_u64 % PAGE_SIZE;
+                let rounded_up = loaded_u64 + if r == 0 { 0 } else { PAGE_SIZE - r };
+
+                NumBytes::new(rounded_up)
+            } else {
+                num_bytes
+            };
             context.charge(COMMON_LOAD_BASE_NEW + COMMON_LOAD_PER_BYTE * num_bytes)
         },
         Some(None) => context.charge(COMMON_LOAD_BASE_NEW + COMMON_LOAD_FAILURE),
@@ -289,6 +365,7 @@ fn native_add_box(
 
     context.charge(ADD_BOX_BASE)?;
 
+    let function_value_extension = context.function_value_extension();
     let table_context = context.extensions().get::<NativeTableContext>();
     let mut table_data = table_context.table_data.borrow_mut();
 
@@ -298,10 +375,11 @@ fn native_add_box(
 
     let table = table_data.get_or_create_table(context, handle, &ty_args[0], &ty_args[2])?;
 
-    let key_bytes = serialize(&table.key_layout, &key)?;
+    let key_bytes = serialize_key(function_value_extension, &table.key_layout, &key)?;
     let key_cost = ADD_BOX_PER_BYTE_SERIALIZED * NumBytes::new(key_bytes.len() as u64);
 
-    let (gv, loaded) = table.get_or_create_global_value(table_context, key_bytes)?;
+    let (gv, loaded) =
+        table.get_or_create_global_value(function_value_extension, table_context, key_bytes)?;
 
     let res = match gv.move_to(val) {
         Ok(_) => Ok(smallvec![]),
@@ -329,6 +407,7 @@ fn native_borrow_box(
 
     context.charge(BORROW_BOX_BASE)?;
 
+    let function_value_extension = context.function_value_extension();
     let table_context = context.extensions().get::<NativeTableContext>();
     let mut table_data = table_context.table_data.borrow_mut();
 
@@ -337,10 +416,11 @@ fn native_borrow_box(
 
     let table = table_data.get_or_create_table(context, handle, &ty_args[0], &ty_args[2])?;
 
-    let key_bytes = serialize(&table.key_layout, &key)?;
+    let key_bytes = serialize_key(function_value_extension, &table.key_layout, &key)?;
     let key_cost = BORROW_BOX_PER_BYTE_SERIALIZED * NumBytes::new(key_bytes.len() as u64);
 
-    let (gv, loaded) = table.get_or_create_global_value(table_context, key_bytes)?;
+    let (gv, loaded) =
+        table.get_or_create_global_value(function_value_extension, table_context, key_bytes)?;
 
     let res = match gv.borrow_global() {
         Ok(ref_val) => Ok(smallvec![ref_val]),
@@ -368,6 +448,7 @@ fn native_contains_box(
 
     context.charge(CONTAINS_BOX_BASE)?;
 
+    let function_value_extension = context.function_value_extension();
     let table_context = context.extensions().get::<NativeTableContext>();
     let mut table_data = table_context.table_data.borrow_mut();
 
@@ -376,10 +457,11 @@ fn native_contains_box(
 
     let table = table_data.get_or_create_table(context, handle, &ty_args[0], &ty_args[2])?;
 
-    let key_bytes = serialize(&table.key_layout, &key)?;
+    let key_bytes = serialize_key(function_value_extension, &table.key_layout, &key)?;
     let key_cost = CONTAINS_BOX_PER_BYTE_SERIALIZED * NumBytes::new(key_bytes.len() as u64);
 
-    let (gv, loaded) = table.get_or_create_global_value(table_context, key_bytes)?;
+    let (gv, loaded) =
+        table.get_or_create_global_value(function_value_extension, table_context, key_bytes)?;
     let exists = Value::bool(gv.exists()?);
 
     drop(table_data);
@@ -401,6 +483,7 @@ fn native_remove_box(
 
     context.charge(REMOVE_BOX_BASE)?;
 
+    let function_value_extension = context.function_value_extension();
     let table_context = context.extensions().get::<NativeTableContext>();
     let mut table_data = table_context.table_data.borrow_mut();
 
@@ -409,10 +492,11 @@ fn native_remove_box(
 
     let table = table_data.get_or_create_table(context, handle, &ty_args[0], &ty_args[2])?;
 
-    let key_bytes = serialize(&table.key_layout, &key)?;
+    let key_bytes = serialize_key(function_value_extension, &table.key_layout, &key)?;
     let key_cost = REMOVE_BOX_PER_BYTE_SERIALIZED * NumBytes::new(key_bytes.len() as u64);
 
-    let (gv, loaded) = table.get_or_create_global_value(table_context, key_bytes)?;
+    let (gv, loaded) =
+        table.get_or_create_global_value(function_value_extension, table_context, key_bytes)?;
     let res = match gv.move_from() {
         Ok(val) => Ok(smallvec![val]),
         Err(_) => Err(SafeNativeError::Abort {
@@ -476,14 +560,57 @@ fn get_table_handle(table: &StructRef) -> PartialVMResult<TableHandle> {
     Ok(TableHandle(handle))
 }
 
-fn serialize(layout: &MoveTypeLayout, val: &Value) -> PartialVMResult<Vec<u8>> {
-    val.simple_serialize(layout)
-        .ok_or_else(|| partial_extension_error("cannot serialize table key or value"))
+fn serialize_key(
+    function_value_extension: &dyn FunctionValueExtension,
+    layout: &MoveTypeLayout,
+    key: &Value,
+) -> PartialVMResult<Vec<u8>> {
+    ValueSerDeContext::new()
+        .with_func_args_deserialization(function_value_extension)
+        .serialize(key, layout)?
+        .ok_or_else(|| partial_extension_error("cannot serialize table key"))
 }
 
-fn deserialize(layout: &MoveTypeLayout, bytes: &[u8]) -> PartialVMResult<Value> {
-    Value::simple_deserialize(bytes, layout)
-        .ok_or_else(|| partial_extension_error("cannot deserialize table key or value"))
+fn serialize_value(
+    function_value_extension: &dyn FunctionValueExtension,
+    layout_info: &LayoutInfo,
+    val: &Value,
+) -> PartialVMResult<(Bytes, Option<Arc<MoveTypeLayout>>)> {
+    let serialization_result = if layout_info.has_identifier_mappings {
+        // Value contains delayed fields, so we should be able to serialize it.
+        ValueSerDeContext::new()
+            .with_delayed_fields_serde()
+            .with_func_args_deserialization(function_value_extension)
+            .serialize(val, layout_info.layout.as_ref())?
+            .map(|bytes| (bytes.into(), Some(layout_info.layout.clone())))
+    } else {
+        // No delayed fields, make sure serialization fails if there are any
+        // native values.
+        ValueSerDeContext::new()
+            .with_func_args_deserialization(function_value_extension)
+            .serialize(val, layout_info.layout.as_ref())?
+            .map(|bytes| (bytes.into(), None))
+    };
+    serialization_result.ok_or_else(|| partial_extension_error("cannot serialize table value"))
+}
+
+fn deserialize_value(
+    function_value_extension: &dyn FunctionValueExtension,
+    bytes: &[u8],
+    layout_info: &LayoutInfo,
+) -> PartialVMResult<Value> {
+    let layout = layout_info.layout.as_ref();
+    let deserialization_result = if layout_info.has_identifier_mappings {
+        ValueSerDeContext::new()
+            .with_func_args_deserialization(function_value_extension)
+            .with_delayed_fields_serde()
+            .deserialize(bytes, layout)
+    } else {
+        ValueSerDeContext::new()
+            .with_func_args_deserialization(function_value_extension)
+            .deserialize(bytes, layout)
+    };
+    deserialization_result.ok_or_else(|| partial_extension_error("cannot deserialize table value"))
 }
 
 fn partial_extension_error(msg: impl ToString) -> PartialVMError {

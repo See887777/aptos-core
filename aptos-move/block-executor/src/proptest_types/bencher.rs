@@ -3,17 +3,21 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
+    code_cache_global_manager::AptosModuleCacheManagerGuard,
     executor::BlockExecutor,
     proptest_types::{
         baseline::BaselineOutput,
         types::{
-            EmptyDataView, KeyType, MockOutput, MockTask, MockTransaction, TransactionGen,
-            TransactionGenParams, ValueType,
+            KeyType, MockOutput, MockTask, MockTransaction, TransactionGen, TransactionGenParams,
         },
     },
     txn_commit_hook::NoOpTransactionCommitHook,
+    txn_provider::default::DefaultTxnProvider,
 };
-use aptos_types::{contract_event::ReadWriteEvent, executable::ExecutableTestType};
+use aptos_types::{
+    block_executor::config::BlockExecutorConfig, contract_event::TransactionEvent,
+    state_store::MockStateView,
+};
 use criterion::{BatchSize, Bencher as CBencher};
 use num_cpus;
 use proptest::{
@@ -33,18 +37,18 @@ pub struct Bencher<K, V, E> {
 }
 
 pub(crate) struct BencherState<
-    K: Hash + Clone + Debug + Eq + PartialOrd + Ord,
-    E: Send + Sync + Debug + Clone + ReadWriteEvent,
+    K: Hash + Clone + Debug + Eq + PartialOrd + Ord + Send + Sync + 'static,
+    E: Send + Sync + Debug + Clone + TransactionEvent + 'static,
 > {
-    transactions: Vec<MockTransaction<KeyType<K>, ValueType, E>>,
-    baseline_output: BaselineOutput<KeyType<K>, ValueType>,
+    txns_provider: DefaultTxnProvider<MockTransaction<KeyType<K>, E>>,
+    baseline_output: BaselineOutput<KeyType<K>>,
 }
 
 impl<K, V, E> Bencher<K, V, E>
 where
     K: Hash + Clone + Debug + Eq + Send + Sync + PartialOrd + Ord + Arbitrary + 'static,
     V: Clone + Eq + Send + Sync + Arbitrary + 'static,
-    E: Send + Sync + Debug + Clone + ReadWriteEvent + 'static,
+    E: Send + Sync + Debug + Clone + TransactionEvent + 'static,
     Vec<u8>: From<V>,
 {
     pub fn new(transaction_size: usize, universe_size: usize) -> Self {
@@ -75,7 +79,7 @@ where
 impl<K, E> BencherState<K, E>
 where
     K: Hash + Clone + Debug + Eq + Send + Sync + PartialOrd + Ord + 'static,
-    E: Send + Sync + Debug + Clone + ReadWriteEvent + 'static,
+    E: Send + Sync + Debug + Clone + TransactionEvent + 'static,
 {
     /// Creates a new benchmark state with the given account universe strategy and number of
     /// transactions.
@@ -104,19 +108,18 @@ where
             .into_iter()
             .map(|txn_gen| txn_gen.materialize(&key_universe, (false, false)))
             .collect();
+        let txns_provider = DefaultTxnProvider::new(transactions.clone());
 
-        let baseline_output = BaselineOutput::generate(&transactions, None);
+        let baseline_output = BaselineOutput::generate(txns_provider.get_txns(), None);
 
         Self {
-            transactions,
+            txns_provider: DefaultTxnProvider::new(transactions),
             baseline_output,
         }
     }
 
     pub(crate) fn run(self) {
-        let data_view = EmptyDataView::<KeyType<K>, ValueType> {
-            phantom: PhantomData,
-        };
+        let state_view = MockStateView::empty();
 
         let executor_thread_pool = Arc::new(
             rayon::ThreadPoolBuilder::new()
@@ -125,15 +128,18 @@ where
                 .unwrap(),
         );
 
-        let output = BlockExecutor::<
-            MockTransaction<KeyType<K>, ValueType, E>,
-            MockTask<KeyType<K>, ValueType, E>,
-            EmptyDataView<KeyType<K>, ValueType>,
-            NoOpTransactionCommitHook<MockOutput<KeyType<K>, ValueType, E>, usize>,
-            ExecutableTestType,
-        >::new(num_cpus::get(), executor_thread_pool, None, None)
-        .execute_transactions_parallel((), &self.transactions, &data_view);
+        let config = BlockExecutorConfig::new_no_block_limit(num_cpus::get());
+        let mut guard = AptosModuleCacheManagerGuard::none();
 
-        self.baseline_output.assert_output(&output);
+        let output = BlockExecutor::<
+            MockTransaction<KeyType<K>, E>,
+            MockTask<KeyType<K>, E>,
+            MockStateView<KeyType<K>>,
+            NoOpTransactionCommitHook<MockOutput<KeyType<K>, E>, usize>,
+            DefaultTxnProvider<MockTransaction<KeyType<K>, E>>,
+        >::new(config, executor_thread_pool, None)
+        .execute_transactions_parallel(&self.txns_provider, &state_view, &mut guard);
+
+        self.baseline_output.assert_parallel_output(&output);
     }
 }

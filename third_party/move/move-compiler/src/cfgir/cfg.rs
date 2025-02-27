@@ -21,7 +21,7 @@ use std::{
 //**************************************************************************************************
 // CFG
 //**************************************************************************************************
-
+#[allow(dead_code)]
 pub trait CFG {
     fn successors(&self, label: Label) -> &BTreeSet<Label>;
 
@@ -617,7 +617,7 @@ impl<'a> ReverseBlockCFG<'a> {
         for terminal_predecessor in &end_blocks {
             forward_successors
                 .entry(*terminal_predecessor)
-                .or_insert_with(BTreeSet::new)
+                .or_default()
                 .insert(terminal);
         }
         forward_predecessor.insert(terminal, end_blocks);

@@ -6,33 +6,29 @@ use crate::{
     AptosPublicInfo, ChainInfo, FullNode, NodeExt, Result, SwarmChaos, Validator, Version,
 };
 use anyhow::{anyhow, bail};
-use aptos_config::config::{NodeConfig, OverrideNodeConfig};
+use aptos_config::{
+    config::{NodeConfig, OverrideNodeConfig},
+    network_id::NetworkId,
+};
 use aptos_logger::info;
 use aptos_rest_client::Client as RestClient;
 use aptos_sdk::types::PeerId;
 use futures::future::{join_all, try_join_all};
 use prometheus_http_query::response::{PromqlResult, Sample};
 use std::time::{Duration, Instant};
-use tokio::runtime::Runtime;
 
 /// Trait used to represent a running network comprised of Validators and FullNodes
 #[async_trait::async_trait]
-pub trait Swarm: Sync {
+pub trait Swarm: Sync + Send {
     /// Performs a health check on the entire swarm, ensuring all Nodes are Live and that no forks
     /// have occurred
-    async fn health_check(&mut self) -> Result<()>;
+    async fn health_check(&self) -> Result<()>;
 
     /// Returns an Iterator of references to all the Validators in the Swarm
     fn validators<'a>(&'a self) -> Box<dyn Iterator<Item = &'a dyn Validator> + 'a>;
 
-    /// Returns an Iterator of mutable references to all the Validators in the Swarm
-    fn validators_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut dyn Validator> + 'a>;
-
     /// Returns a reference to the Validator with the provided PeerId
     fn validator(&self, id: PeerId) -> Option<&dyn Validator>;
-
-    /// Returns a mutable reference to the Validator with the provided PeerId
-    fn validator_mut(&mut self, id: PeerId) -> Option<&mut dyn Validator>;
 
     /// Upgrade a Validator to run specified `Version`
     async fn upgrade_validator(&mut self, id: PeerId, version: &Version) -> Result<()>;
@@ -40,14 +36,8 @@ pub trait Swarm: Sync {
     /// Returns an Iterator of references to all the FullNodes in the Swarm
     fn full_nodes<'a>(&'a self) -> Box<dyn Iterator<Item = &'a dyn FullNode> + 'a>;
 
-    /// Returns an Iterator of mutable references to all the FullNodes in the Swarm
-    fn full_nodes_mut<'a>(&'a mut self) -> Box<dyn Iterator<Item = &'a mut dyn FullNode> + 'a>;
-
     /// Returns a reference to the FullNode with the provided PeerId
     fn full_node(&self, id: PeerId) -> Option<&dyn FullNode>;
-
-    /// Returns a mutable reference to the FullNode with the provided PeerId
-    fn full_node_mut(&mut self, id: PeerId) -> Option<&mut dyn FullNode>;
 
     /// Adds a Validator to the swarm and returns the PeerId
     fn add_validator(&mut self, version: &Version, template: NodeConfig) -> Result<PeerId>;
@@ -76,14 +66,14 @@ pub trait Swarm: Sync {
     fn versions<'a>(&'a self) -> Box<dyn Iterator<Item = Version> + 'a>;
 
     /// Construct a ChainInfo from this Swarm
-    fn chain_info(&mut self) -> ChainInfo<'_>;
+    fn chain_info(&self) -> ChainInfo;
 
     fn logs_location(&mut self) -> String;
 
     /// Injects all types of chaos
-    fn inject_chaos(&mut self, chaos: SwarmChaos) -> Result<()>;
-    fn remove_chaos(&mut self, chaos: SwarmChaos) -> Result<()>;
-    fn remove_all_chaos(&mut self) -> Result<()>;
+    async fn inject_chaos(&mut self, chaos: SwarmChaos) -> Result<()>;
+    async fn remove_chaos(&mut self, chaos: SwarmChaos) -> Result<()>;
+    async fn remove_all_chaos(&mut self) -> Result<()>;
 
     async fn ensure_no_validator_restart(&self) -> Result<()>;
     async fn ensure_no_fullnode_restart(&self) -> Result<()>;
@@ -104,17 +94,21 @@ pub trait Swarm: Sync {
         timeout: Option<i64>,
     ) -> Result<Vec<Sample>>;
 
-    fn aptos_public_info(&mut self) -> AptosPublicInfo<'_> {
+    fn aptos_public_info(&self) -> AptosPublicInfo {
         self.chain_info().into_aptos_public_info()
     }
 
-    fn chain_info_for_node(&mut self, idx: usize) -> ChainInfo<'_>;
+    fn chain_info_for_node(&mut self, idx: usize) -> ChainInfo;
 
-    fn aptos_public_info_for_node(&mut self, idx: usize) -> AptosPublicInfo<'_> {
+    fn aptos_public_info_for_node(&mut self, idx: usize) -> AptosPublicInfo {
         self.chain_info_for_node(idx).into_aptos_public_info()
     }
 
     fn get_default_pfn_node_config(&self) -> NodeConfig;
+
+    /// Check if the swarm has an indexer. NOTE: in the future we should make this more rich, and include
+    /// indexer endpoints, similar to how we collect validator and fullnode endpoints.
+    fn has_indexer(&self) -> bool;
 }
 
 impl<T: ?Sized> SwarmExt for T where T: Swarm {}
@@ -157,7 +151,7 @@ pub trait SwarmExt: Swarm {
         while !try_join_all(
             validators
                 .iter()
-                .map(|node| node.check_connectivity(validators.len() - 1))
+                .map(|node| node.check_connectivity(NetworkId::Validator, validators.len() - 1))
                 .chain(full_nodes.iter().map(|node| node.check_connectivity())),
         )
         .await
@@ -174,33 +168,36 @@ pub trait SwarmExt: Swarm {
         Ok(())
     }
 
+    // Checks if root_hashes are equal across all nodes at a given version
+    async fn are_root_hashes_equal_at_version(
+        clients: &[RestClient],
+        version: u64,
+    ) -> Result<bool> {
+        let root_hashes = try_join_all(
+            clients
+                .iter()
+                .map(|node| node.get_transaction_by_version(version))
+                .collect::<Vec<_>>(),
+        )
+        .await?
+        .into_iter()
+        .map(|r| {
+            r.into_inner()
+                .transaction_info()
+                .unwrap()
+                .accumulator_root_hash
+        })
+        .collect::<Vec<_>>();
+
+        Ok(root_hashes.windows(2).all(|w| w[0] == w[1]))
+    }
+
     /// Perform a safety check, ensuring that no forks have occurred in the network.
-    fn fork_check(&self) -> Result<()> {
-        // Checks if root_hashes are equal across all nodes at a given version
-        async fn are_root_hashes_equal_at_version(
-            clients: &[RestClient],
-            version: u64,
-        ) -> Result<bool> {
-            let root_hashes = try_join_all(
-                clients
-                    .iter()
-                    .map(|node| node.get_transaction_by_version(version))
-                    .collect::<Vec<_>>(),
-            )
-            .await?
-            .into_iter()
-            .map(|r| {
-                r.into_inner()
-                    .transaction_info()
-                    .unwrap()
-                    .accumulator_root_hash
-            })
-            .collect::<Vec<_>>();
-
-            Ok(root_hashes.windows(2).all(|w| w[0] == w[1]))
-        }
-
-        let runtime = Runtime::new().unwrap();
+    async fn fork_check(&self, epoch_duration: Duration) -> Result<()> {
+        // Lots of errors can actually occur after an epoch change so guarantee that we change epochs here
+        // This can wait for 2x epoch to at least force the caller to be explicit about the epoch duration
+        self.wait_for_all_nodes_to_change_epoch(epoch_duration * 2)
+            .await?;
 
         let clients = self
             .validators()
@@ -208,16 +205,16 @@ pub trait SwarmExt: Swarm {
             .chain(self.full_nodes().map(|node| node.rest_client()))
             .collect::<Vec<_>>();
 
-        let versions = runtime
-            .block_on(try_join_all(
-                clients
-                    .iter()
-                    .map(|node| node.get_ledger_information())
-                    .collect::<Vec<_>>(),
-            ))?
-            .into_iter()
-            .map(|resp| resp.into_inner().version)
-            .collect::<Vec<u64>>();
+        let versions = try_join_all(
+            clients
+                .iter()
+                .map(|node| node.get_ledger_information())
+                .collect::<Vec<_>>(),
+        )
+        .await?
+        .into_iter()
+        .map(|resp| resp.into_inner().version)
+        .collect::<Vec<u64>>();
         let min_version = versions
             .iter()
             .min()
@@ -229,15 +226,14 @@ pub trait SwarmExt: Swarm {
             .copied()
             .ok_or_else(|| anyhow!("Unable to query nodes for their latest version"))?;
 
-        if !runtime.block_on(are_root_hashes_equal_at_version(&clients, min_version))? {
+        if !Self::are_root_hashes_equal_at_version(&clients, min_version).await? {
             return Err(anyhow!("Fork check failed"));
         }
 
-        runtime.block_on(
-            self.wait_for_all_nodes_to_catchup_to_version(max_version, Duration::from_secs(10)),
-        )?;
+        self.wait_for_all_nodes_to_catchup_to_version(max_version, Duration::from_secs(10))
+            .await?;
 
-        if !runtime.block_on(are_root_hashes_equal_at_version(&clients, max_version))? {
+        if !Self::are_root_hashes_equal_at_version(&clients, max_version).await? {
             return Err(anyhow!("Fork check failed"));
         }
 
@@ -294,10 +290,23 @@ pub trait SwarmExt: Swarm {
     }
 
     async fn wait_for_all_nodes_to_catchup_to_next(&self, timeout: Duration) -> Result<()> {
+        self.wait_for_all_nodes_to_catchup_to_future(timeout, 1)
+            .await
+    }
+
+    async fn wait_for_all_nodes_to_catchup_to_future(
+        &self,
+        timeout: Duration,
+        versions_to_sync_past: u64,
+    ) -> Result<()> {
         let clients = self.get_all_nodes_clients_with_names();
         let highest_synced_version = get_highest_synced_version(&clients).await?;
-        wait_for_all_nodes_to_catchup_to_version(&clients, highest_synced_version + 1, timeout)
-            .await
+        wait_for_all_nodes_to_catchup_to_version(
+            &clients,
+            highest_synced_version + versions_to_sync_past,
+            timeout,
+        )
+        .await
     }
 
     fn get_validator_clients_with_names(&self) -> Vec<(String, RestClient)> {
@@ -411,15 +420,14 @@ async fn wait_for_all_nodes_to_catchup_to_target_version_or_epoch(
                 ))
             }))
             .await;
-        let node_versions_and_epochs = version_and_epoch_results
-            .map(|results| results.into_iter().collect::<Vec<_>>())
-            .ok();
+        let node_versions_and_epochs =
+            version_and_epoch_results.map(|results| results.into_iter().collect::<Vec<_>>());
 
         // Check if all nodes are caught up to the target version
         let all_caught_up_to_version = target_version
             .map(|target_version| {
                 node_versions_and_epochs
-                    .clone()
+                    .as_ref()
                     .map(|responses| {
                         responses
                             .iter()
@@ -433,7 +441,7 @@ async fn wait_for_all_nodes_to_catchup_to_target_version_or_epoch(
         let all_caught_up_to_epoch = target_epoch
             .map(|target_epoch| {
                 node_versions_and_epochs
-                    .clone()
+                    .as_ref()
                     .map(|responses| responses.iter().all(|(_, _, epoch)| *epoch >= target_epoch))
                     .unwrap_or(false) // No epoch found
             })
@@ -457,7 +465,7 @@ async fn wait_for_all_nodes_to_catchup_to_target_version_or_epoch(
                 target_version,
                 target_epoch,
                 start_time.elapsed().as_secs(),
-                node_versions_and_epochs.unwrap_or_default()
+                node_versions_and_epochs
             ));
         }
 
@@ -493,7 +501,7 @@ pub async fn get_highest_synced_epoch(clients: &[(String, RestClient)]) -> Resul
 }
 
 /// Returns the highest synced version and epoch of the given clients
-async fn get_highest_synced_version_and_epoch(
+pub async fn get_highest_synced_version_and_epoch(
     clients: &[(String, RestClient)],
 ) -> Result<(u64, u64)> {
     let mut latest_version_and_epoch = (0, 0);

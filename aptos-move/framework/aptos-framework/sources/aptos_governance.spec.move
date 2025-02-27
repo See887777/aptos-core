@@ -1,7 +1,42 @@
 spec aptos_framework::aptos_governance {
+    /// <high-level-req>
+    /// No.: 1
+    /// Requirement: The create proposal function calls create proposal v2.
+    /// Criticality: Low
+    /// Implementation: The create_proposal function internally calls create_proposal_v2.
+    /// Enforcement: This is manually audited to ensure create_proposal_v2 is called in create_proposal.
+    ///
+    /// No.: 2
+    /// Requirement: The proposer must have a stake equal to or greater than the required bond amount.
+    /// Criticality: High
+    /// Implementation: The create_proposal_v2 function verifies that the stake balance equals or exceeds the required
+    /// proposer stake amount.
+    /// Enforcement: Formally verified in [high-level-req-2](CreateProposalAbortsIf).
+    ///
+    /// No.: 3
+    /// Requirement: The Approved execution hashes resources that exist when the vote function is called.
+    /// Criticality: Low
+    /// Implementation: The Vote function acquires the Approved execution hashes resources.
+    /// Enforcement: Formally verified in [high-level-req-3](VoteAbortIf).
+    ///
+    /// No.: 4
+    /// Requirement: The execution script hash of a successful governance proposal is added to the approved list if the
+    /// proposal can be resolved.
+    /// Criticality: Medium
+    /// Implementation: The add_approved_script_hash function asserts that proposal_state == PROPOSAL_STATE_SUCCEEDED.
+    /// Enforcement: Formally verified in [high-level-req-4](AddApprovedScriptHash).
+    /// </high-level-req>
+    ///
     spec module {
         pragma verify = true;
-        pragma aborts_if_is_strict;
+        pragma aborts_if_is_partial;
+    }
+
+    spec schema AbortsIfPermissionedSigner {
+        use aptos_framework::permissioned_signer;
+        s: signer;
+        let perm = GovernancePermission {};
+        aborts_if !permissioned_signer::spec_check_permission_exists(s, perm);
     }
 
     spec store_signer_cap(
@@ -16,6 +51,8 @@ spec aptos_framework::aptos_governance {
         aborts_if exists<GovernanceResponsbility>(@aptos_framework) &&
             simple_map::spec_contains_key(signer_caps, signer_address);
         ensures exists<GovernanceResponsbility>(@aptos_framework);
+        let post post_signer_caps = global<GovernanceResponsbility>(@aptos_framework).signer_caps;
+        ensures simple_map::spec_contains_key(post_signer_caps, signer_address);
     }
 
     /// Signer address must be @aptos_framework.
@@ -46,6 +83,7 @@ spec aptos_framework::aptos_governance {
         ensures exists<GovernanceEvents>(addr);
         ensures exists<VotingRecords>(addr);
         ensures exists<ApprovedExecutionHashes>(addr);
+        ensures exists<VotingRecordsV2>(addr);
     }
 
     /// Signer address must be @aptos_framework.
@@ -56,6 +94,7 @@ spec aptos_framework::aptos_governance {
         let addr = signer::address_of(aptos_framework);
         aborts_if addr != @aptos_framework;
         aborts_if exists<VotingRecordsV2>(@aptos_framework);
+        ensures exists<VotingRecordsV2>(@aptos_framework);
     }
 
     spec schema InitializeAbortIf {
@@ -73,6 +112,7 @@ spec aptos_framework::aptos_governance {
         aborts_if exists<VotingRecords>(addr);
         aborts_if exists<ApprovedExecutionHashes>(addr);
         aborts_if !exists<account::Account>(addr);
+        aborts_if exists<VotingRecordsV2>(addr);
     }
 
     /// Signer address must be @aptos_framework.
@@ -89,7 +129,9 @@ spec aptos_framework::aptos_governance {
         let post new_governance_config = global<GovernanceConfig>(@aptos_framework);
         aborts_if addr != @aptos_framework;
         aborts_if !exists<GovernanceConfig>(@aptos_framework);
-        aborts_if !exists<GovernanceEvents>(@aptos_framework);
+        aborts_if !features::spec_is_enabled(features::MODULE_EVENT_MIGRATION) && !exists<GovernanceEvents>(
+            @aptos_framework
+        );
         modifies global<GovernanceConfig>(addr);
 
         ensures new_governance_config.voting_duration_secs == voting_duration_secs;
@@ -107,15 +149,14 @@ spec aptos_framework::aptos_governance {
         use aptos_framework::chain_status;
         use aptos_framework::coin::CoinInfo;
         use aptos_framework::aptos_coin::AptosCoin;
-        use aptos_framework::transaction_fee;
-
-        pragma verify_duration_estimate = 200;
+        pragma verify = false; // TODO: set because of timeout (property proved).
         let addr = signer::address_of(aptos_framework);
         aborts_if addr != @aptos_framework;
-
-        include transaction_fee::RequiresCollectedFeesPerValueLeqBlockAptosSupply;
+        include reconfiguration_with_dkg::FinishRequirement {
+            framework: aptos_framework
+        };
+        include stake::GetReconfigStartTimeRequirement;
         requires chain_status::is_operating();
-        requires exists<stake::ValidatorFees>(@aptos_framework);
         requires exists<CoinInfo<AptosCoin>>(@aptos_framework);
         requires exists<staking_config::StakingRewardsConfig>(@aptos_framework);
         include staking_config::StakingRewardsConfigRequirement;
@@ -181,6 +222,7 @@ spec aptos_framework::aptos_governance {
         pragma verify_duration_estimate = 60;
         requires chain_status::is_operating();
         include CreateProposalAbortsIf;
+        // include AbortsIfPermissionedSigner { s: proposer };
     }
 
     /// `stake_pool` must exist StakePool.
@@ -209,6 +251,7 @@ spec aptos_framework::aptos_governance {
         let stake_balance_2 = 0;
         let governance_config = global<GovernanceConfig>(@aptos_framework);
         let required_proposer_stake = governance_config.required_proposer_stake;
+        /// [high-level-req-2]
         // Comparison of the three results of get_voting_power(stake_pool) and required_proposer_stake
         aborts_if allow_validator_set_change && stake_balance_0 < required_proposer_stake;
         aborts_if !allow_validator_set_change && stake::spec_is_current_epoch_validator(stake_pool) && stake_balance_1 < required_proposer_stake;
@@ -231,7 +274,7 @@ spec aptos_framework::aptos_governance {
 
         // verify voting::create_proposal_v2
         aborts_if option::spec_is_some(maybe_supply) && governance_config.min_voting_threshold > early_resolution_vote_threshold_value;
-        aborts_if len(execution_hash) <= 0;
+        aborts_if len(execution_hash) == 0;
         aborts_if !exists<voting::VotingForum<GovernanceProposal>>(@aptos_framework);
         let voting_forum = global<voting::VotingForum<GovernanceProposal>>(@aptos_framework);
         let proposal_id = voting_forum.next_proposal_id;
@@ -434,6 +477,7 @@ spec aptos_framework::aptos_governance {
         let post post_approved_hashes = global<ApprovedExecutionHashes>(@aptos_framework);
 
         // Due to the complexity of the success state, the validation of 'borrow_global_mut<ApprovedExecutionHashes>(@aptos_framework);' is discussed in four cases.
+        /// [high-level-req-3]
         aborts_if
             if (should_pass) {
                 proposal_state_successed_0 && !exists<ApprovedExecutionHashes>(@aptos_framework)
@@ -484,6 +528,7 @@ spec aptos_framework::aptos_governance {
             (proposal.yes_votes <= proposal.no_votes || proposal.yes_votes + proposal.no_votes < proposal.min_vote_threshold);
 
         let post post_approved_hashes = global<ApprovedExecutionHashes>(@aptos_framework);
+        /// [high-level-req-4]
         ensures simple_map::spec_contains_key(post_approved_hashes.hashes, proposal_id) &&
             simple_map::spec_get(post_approved_hashes.hashes, proposal_id) == proposal.execution_hash;
     }
@@ -534,20 +579,22 @@ spec aptos_framework::aptos_governance {
         aborts_if !exists<voting::VotingForum<GovernanceProposal>>(@aptos_framework);
         let proposal = table::spec_get(voting_forum.proposals, proposal_id);
         aborts_if !proposal.is_resolved;
+        let post approved_hashes = global<ApprovedExecutionHashes>(@aptos_framework).hashes;
+        ensures !simple_map::spec_contains_key(approved_hashes, proposal_id);
     }
 
     spec reconfigure(aptos_framework: &signer) {
         use aptos_framework::chain_status;
         use aptos_framework::coin::CoinInfo;
         use aptos_framework::aptos_coin::AptosCoin;
-        use aptos_framework::transaction_fee;
-
-        pragma verify_duration_estimate = 120; // TODO: set because of timeout (property proved)
+        pragma verify = false; // TODO: set because of timeout (property proved).
         aborts_if !system_addresses::is_aptos_framework_address(signer::address_of(aptos_framework));
+        include reconfiguration_with_dkg::FinishRequirement {
+            framework: aptos_framework
+        };
+        include stake::GetReconfigStartTimeRequirement;
 
-        include transaction_fee::RequiresCollectedFeesPerValueLeqBlockAptosSupply;
         requires chain_status::is_operating();
-        requires exists<stake::ValidatorFees>(@aptos_framework);
         requires exists<CoinInfo<AptosCoin>>(@aptos_framework);
         requires exists<staking_config::StakingRewardsConfig>(@aptos_framework);
         include staking_config::StakingRewardsConfigRequirement;
@@ -715,6 +762,8 @@ spec aptos_framework::aptos_governance {
         use aptos_framework::chain_status;
         requires chain_status::is_operating();
 
+        // TODO: These function passed locally however failed in github CI
+        pragma verify_duration_estimate = 120;
         // verify voting::resolve_proposal_v2
         include VotingIsProposalResolvableAbortsif;
 
@@ -791,7 +840,52 @@ spec aptos_framework::aptos_governance {
         include VotingInitializationAbortIfs;
     }
 
+    spec assert_proposal_expiration(stake_pool: address, proposal_id: u64) {
+        include VotingInitializationAbortIfs;
+        include voting::AbortsIfNotContainProposalID<GovernanceProposal>{voting_forum_address: @aptos_framework};
+        let proposal_expiration = voting::spec_get_proposal_expiration_secs<GovernanceProposal>(@aptos_framework, proposal_id);
+        aborts_if !stake::stake_pool_exists(stake_pool);
+        aborts_if proposal_expiration > stake::spec_get_lockup_secs(stake_pool);
+        aborts_if !exists<timestamp::CurrentTimeMicroseconds>(@aptos_framework);
+        aborts_if timestamp::now_seconds() > proposal_expiration;
+    }
+
+    spec force_end_epoch(aptos_framework: &signer) {
+        use aptos_framework::reconfiguration_with_dkg;
+        use std::signer;
+        pragma verify = false; // TODO: set because of timeout (property proved).
+        let address = signer::address_of(aptos_framework);
+        include reconfiguration_with_dkg::FinishRequirement {
+            framework: aptos_framework
+        };
+    }
+
     spec schema VotingInitializationAbortIfs {
         aborts_if features::spec_partial_governance_voting_enabled() && !exists<VotingRecordsV2>(@aptos_framework);
+    }
+
+    spec force_end_epoch_test_only {
+        pragma verify = false;
+    }
+
+    spec batch_vote(
+        voter: &signer,
+        stake_pools: vector<address>,
+        proposal_id: u64,
+        should_pass: bool,
+    ) {
+        // TODO: Temporary mockup. Specify the `for_each` statement.
+        pragma verify = false;
+    }
+
+    spec batch_partial_vote(
+        voter: &signer,
+        stake_pools: vector<address>,
+        proposal_id: u64,
+        voting_power: u64,
+        should_pass: bool,
+    ) {
+        // TODO: Temporary mockup. Specify the `for_each` statement.
+        pragma verify = false;
     }
 }

@@ -9,6 +9,10 @@ pub const OUT_EXT: &str = "out";
 /// Extension for expected output files
 pub const EXP_EXT: &str = "exp";
 
+pub fn get_compiler_exp_extension() -> &'static str {
+    EXP_EXT
+}
+
 /// If any of these env vars is set, the test harness should overwrite
 /// the existing .exp files with the output instead of checking
 /// them against the output.

@@ -186,13 +186,16 @@ fn test_partitioner_v2_connected_component_sharded_block_executor_with_random_tr
 }
 
 mod test_utils {
+    use aptos_block_executor::txn_provider::default::DefaultTxnProvider;
     use aptos_block_partitioner::BlockPartitioner;
     use aptos_language_e2e_tests::{
         account::AccountData, common_transactions::peer_to_peer_txn, data_store::FakeDataStore,
         executor::FakeExecutor,
     };
     use aptos_types::{
-        block_executor::partitioner::PartitionedTransactions,
+        block_executor::{
+            config::BlockExecutorConfigFromOnchain, partitioner::PartitionedTransactions,
+        },
         transaction::{
             analyzed_transaction::AnalyzedTransaction,
             signature_verified_transaction::SignatureVerifiedTransaction, Transaction,
@@ -200,8 +203,9 @@ mod test_utils {
         },
     };
     use aptos_vm::{
+        aptos_vm::AptosVMBlockExecutor,
         sharded_block_executor::{executor_client::ExecutorClient, ShardedBlockExecutor},
-        AptosVM, VMExecutor,
+        VMBlockExecutor,
     };
     use move_core_types::account_address::AccountAddress;
     use rand::{rngs::OsRng, Rng};
@@ -296,7 +300,7 @@ mod test_utils {
                 Arc::new(executor.data_store().clone()),
                 partitioned_txns.clone(),
                 2,
-                None,
+                BlockExecutorConfigFromOnchain::new_no_block_limit(),
             )
             .unwrap();
 
@@ -305,8 +309,10 @@ mod test_utils {
                 .into_iter()
                 .map(|t| t.into_txn())
                 .collect();
-        let unsharded_txn_output =
-            AptosVM::execute_block(&ordered_txns, executor.data_store(), None).unwrap();
+        let txn_provider = DefaultTxnProvider::new(ordered_txns);
+        let unsharded_txn_output = AptosVMBlockExecutor::new()
+            .execute_block_no_limit(&txn_provider, executor.data_store())
+            .unwrap();
         compare_txn_outputs(unsharded_txn_output, sharded_txn_output);
     }
 
@@ -350,12 +356,14 @@ mod test_utils {
                 Arc::new(executor.data_store().clone()),
                 partitioned_txns,
                 concurrency,
-                None,
+                BlockExecutorConfigFromOnchain::new_no_block_limit(),
             )
             .unwrap();
 
-        let unsharded_txn_output =
-            AptosVM::execute_block(&execution_ordered_txns, executor.data_store(), None).unwrap();
+        let txn_provider = DefaultTxnProvider::new(execution_ordered_txns);
+        let unsharded_txn_output = AptosVMBlockExecutor::new()
+            .execute_block_no_limit(&txn_provider, executor.data_store())
+            .unwrap();
         compare_txn_outputs(unsharded_txn_output, sharded_txn_output);
     }
 
@@ -403,12 +411,14 @@ mod test_utils {
                 Arc::new(executor.data_store().clone()),
                 partitioned_txns,
                 concurrency,
-                None,
+                BlockExecutorConfigFromOnchain::new_no_block_limit(),
             )
             .unwrap();
 
-        let unsharded_txn_output =
-            AptosVM::execute_block(&execution_ordered_txns, executor.data_store(), None).unwrap();
+        let txn_provider = DefaultTxnProvider::new(execution_ordered_txns);
+        let unsharded_txn_output = AptosVMBlockExecutor::new()
+            .execute_block_no_limit(&txn_provider, executor.data_store())
+            .unwrap();
         compare_txn_outputs(unsharded_txn_output, sharded_txn_output);
     }
 }

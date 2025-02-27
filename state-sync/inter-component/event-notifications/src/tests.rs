@@ -14,18 +14,19 @@ use aptos_infallible::RwLock;
 use aptos_storage_interface::DbReaderWriter;
 use aptos_types::{
     account_address::AccountAddress,
+    account_config::NEW_EPOCH_EVENT_V2_MOVE_TYPE_TAG,
     contract_event::ContractEvent,
     event::EventKey,
     on_chain_config,
     on_chain_config::OnChainConfig,
     transaction::{Transaction, Version, WriteSetPayload},
 };
-use aptos_vm::AptosVM;
+use aptos_vm::aptos_vm::AptosVMBlockExecutor;
 use claims::{assert_lt, assert_matches, assert_ok};
 use futures::{FutureExt, StreamExt};
 use move_core_types::language_storage::TypeTag;
 use serde::{Deserialize, Serialize};
-use std::{convert::TryInto, sync::Arc};
+use std::{convert::TryInto, str::FromStr, sync::Arc};
 
 #[test]
 fn test_all_configs_returned() {
@@ -53,7 +54,7 @@ fn test_all_configs_returned() {
 
     // Notify the subscription service of 10 reconfiguration events and verify the
     // notifications contain all configs.
-    let reconfig_event = create_test_event(on_chain_config::new_epoch_event_key());
+    let reconfig_event = create_test_reconfig_event();
     for _ in 0..num_reconfigs {
         notify_events(&mut event_service, version, vec![reconfig_event.clone()]);
         verify_reconfig_notifications_received(
@@ -74,7 +75,7 @@ fn test_reconfig_notification_no_queuing() {
     let mut listener_2 = event_service.subscribe_to_reconfigurations().unwrap();
 
     // Notify the subscription service of 10 reconfiguration events
-    let reconfig_event = create_test_event(on_chain_config::new_epoch_event_key());
+    let reconfig_event = create_test_reconfig_event();
     let num_reconfigs = 10;
     for _ in 0..num_reconfigs {
         notify_events(&mut event_service, 0, vec![reconfig_event.clone()]);
@@ -106,11 +107,10 @@ fn test_dynamic_subscribers() {
 
     // Create several event keys
     let event_key_1 = create_random_event_key();
-    let reconfig_event_key = on_chain_config::new_epoch_event_key();
 
     // Create a subscriber for event_key_1 and a reconfiguration subscriber
     let mut event_listener_1 = event_service
-        .subscribe_to_events(vec![event_key_1])
+        .subscribe_to_events(vec![event_key_1], vec![])
         .unwrap();
     let mut reconfig_listener_1 = event_service.subscribe_to_reconfigurations().unwrap();
 
@@ -121,11 +121,13 @@ fn test_dynamic_subscribers() {
 
     // Add another subscriber for event_key_1 and the reconfig_event_key
     let mut event_listener_2 = event_service
-        .subscribe_to_events(vec![event_key_1, reconfig_event_key])
+        .subscribe_to_events(vec![event_key_1], vec![
+            NEW_EPOCH_EVENT_V2_MOVE_TYPE_TAG.to_string()
+        ])
         .unwrap();
 
     // Notify the service of several events
-    let reconfig_event = create_test_event(reconfig_event_key);
+    let reconfig_event = create_test_reconfig_event();
     notify_events(&mut event_service, 0, vec![
         event_1.clone(),
         reconfig_event.clone(),
@@ -159,17 +161,16 @@ fn test_event_and_reconfig_subscribers() {
     // Create several event keys
     let event_key_1 = create_random_event_key();
     let event_key_2 = create_random_event_key();
-    let reconfig_event_key = on_chain_config::new_epoch_event_key();
 
     // Create subscribers for the various event keys
     let mut event_listener_1 = event_service
-        .subscribe_to_events(vec![event_key_1])
+        .subscribe_to_events(vec![event_key_1], vec![])
         .unwrap();
     let mut event_listener_2 = event_service
-        .subscribe_to_events(vec![event_key_1, event_key_2])
+        .subscribe_to_events(vec![event_key_1, event_key_2], vec![])
         .unwrap();
     let mut event_listener_3 = event_service
-        .subscribe_to_events(vec![reconfig_event_key])
+        .subscribe_to_events(vec![], vec![NEW_EPOCH_EVENT_V2_MOVE_TYPE_TAG.to_string()])
         .unwrap();
 
     // Create reconfiguration subscribers
@@ -190,7 +191,7 @@ fn test_event_and_reconfig_subscribers() {
     ]);
 
     // Notify the service of a reconfiguration event and verify correct notifications
-    let reconfig_event = create_test_event(reconfig_event_key);
+    let reconfig_event = create_test_reconfig_event();
     notify_events(&mut event_service, 0, vec![reconfig_event.clone()]);
     verify_reconfig_notifications_received(
         vec![&mut reconfig_listener_1, &mut reconfig_listener_2],
@@ -247,10 +248,10 @@ fn test_event_notification_queuing() {
 
     // Subscribe to the various events (except event_key_3)
     let mut listener_1 = event_service
-        .subscribe_to_events(vec![event_key_1])
+        .subscribe_to_events(vec![event_key_1], vec![])
         .unwrap();
     let mut listener_2 = event_service
-        .subscribe_to_events(vec![event_key_2])
+        .subscribe_to_events(vec![event_key_2], vec![])
         .unwrap();
 
     // Notify the subscription service of 1000 new events (with event_key_1)
@@ -304,13 +305,13 @@ fn test_event_subscribers() {
 
     // Subscribe to the various events (except event_key_5)
     let mut listener_1 = event_service
-        .subscribe_to_events(vec![event_key_1])
+        .subscribe_to_events(vec![event_key_1], vec![])
         .unwrap();
     let mut listener_2 = event_service
-        .subscribe_to_events(vec![event_key_1, event_key_2])
+        .subscribe_to_events(vec![event_key_1, event_key_2], vec![])
         .unwrap();
     let mut listener_3 = event_service
-        .subscribe_to_events(vec![event_key_2, event_key_3, event_key_4])
+        .subscribe_to_events(vec![event_key_2, event_key_3, event_key_4], vec![])
         .unwrap();
 
     // Notify the subscription service of a new event (with event_key_1)
@@ -363,16 +364,54 @@ fn test_no_events_no_subscribers() {
 
     // Attempt to subscribe to zero event keys
     assert_matches!(
-        event_service.subscribe_to_events(vec![]),
+        event_service.subscribe_to_events(vec![], vec![]),
         Err(Error::CannotSubscribeToZeroEventKeys)
     );
 
     // Add subscribers to the service
-    let _event_listener = event_service.subscribe_to_events(vec![create_random_event_key()]);
+    let _event_listener =
+        event_service.subscribe_to_events(vec![create_random_event_key()], vec![]);
     let _reconfig_listener = event_service.subscribe_to_reconfigurations();
 
     // Verify a notification with zero events returns successfully
     notify_events(&mut event_service, 1, vec![]);
+}
+
+#[test]
+fn test_event_v2_subscription_by_tag() {
+    // Create subscription service and mock database
+    let mut event_service = create_event_subscription_service();
+
+    let event_key_1 = create_random_event_key();
+    let event_tag_2 = "0x0::module1::Event2";
+
+    // Subscribe to the various events.
+    let mut listener_1 = event_service
+        .subscribe_to_events(vec![event_key_1], vec![event_tag_2.to_string()])
+        .unwrap();
+    let mut listener_2 = event_service
+        .subscribe_to_events(vec![event_key_1], vec![])
+        .unwrap();
+
+    // Notify the subscription service.
+    let version = 99;
+    let event_1 = create_test_event(event_key_1);
+    let event_2 = ContractEvent::new_v2(TypeTag::from_str(event_tag_2).unwrap(), b"xyz".to_vec());
+    notify_events(&mut event_service, version, vec![
+        event_1.clone(),
+        event_2.clone(),
+    ]);
+
+    // Listener 1 should receive 2 events.
+    verify_event_notification_received(vec![&mut listener_1], version, vec![
+        event_1.clone(),
+        event_2.clone(),
+    ]);
+    verify_no_event_notifications(vec![&mut listener_1]);
+
+    // Listener 2 should receive 1 event.
+    verify_event_notification_received(vec![&mut listener_2], version, vec![event_1]);
+    verify_no_event_notifications(vec![&mut listener_2]);
 }
 
 /// Defines a new on-chain config for test purposes.
@@ -398,7 +437,7 @@ fn count_event_notifications_and_ensure_ordering(listener: &mut EventNotificatio
             notification_count += 1;
             assert_lt!(
                 last_version_received,
-                event_notification.version.try_into().unwrap()
+                std::convert::TryInto::<i64>::try_into(event_notification.version).unwrap()
             );
             last_version_received = event_notification.version.try_into().unwrap();
         } else {
@@ -495,6 +534,13 @@ fn create_test_event(event_key: EventKey) -> ContractEvent {
     ContractEvent::new_v1(event_key, 0, TypeTag::Bool, bcs::to_bytes(&0).unwrap())
 }
 
+fn create_test_reconfig_event() -> ContractEvent {
+    ContractEvent::new_v2(
+        NEW_EPOCH_EVENT_V2_MOVE_TYPE_TAG.clone(),
+        bcs::to_bytes(&0).unwrap(),
+    )
+}
+
 fn create_random_event_key() -> EventKey {
     EventKey::new(0, AccountAddress::random())
 }
@@ -514,7 +560,10 @@ fn create_database() -> Arc<RwLock<DbReaderWriter>> {
 
     // Bootstrap the genesis transaction
     let genesis_txn = Transaction::GenesisTransaction(WriteSetPayload::Direct(genesis));
-    assert_ok!(bootstrap_genesis::<AptosVM>(&db_rw, &genesis_txn));
+    assert_ok!(bootstrap_genesis::<AptosVMBlockExecutor>(
+        &db_rw,
+        &genesis_txn
+    ));
 
     Arc::new(RwLock::new(db_rw))
 }

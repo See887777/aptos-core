@@ -3,22 +3,34 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    accounts::AccountsApi, basic::BasicApi, blocks::BlocksApi, check_size::PostSizeLimit,
-    context::Context, error_converter::convert_error, events::EventsApi, index::IndexApi,
-    log::middleware_log, set_failpoints, state::StateApi, transactions::TransactionsApi,
+    accounts::AccountsApi,
+    basic::BasicApi,
+    blocks::BlocksApi,
+    check_size::PostSizeLimit,
+    context::Context,
+    error_converter::convert_error,
+    events::EventsApi,
+    index::IndexApi,
+    log::middleware_log,
+    set_failpoints,
+    spec::{spec_endpoint_json, spec_endpoint_yaml},
+    state::StateApi,
+    transactions::TransactionsApi,
     view_function::ViewFunctionApi,
 };
-use anyhow::Context as AnyhowContext;
-use aptos_api_types::X_APTOS_CLIENT;
+use anyhow::{anyhow, Context as AnyhowContext};
 use aptos_config::config::{ApiConfig, NodeConfig};
 use aptos_logger::info;
 use aptos_mempool::MempoolClientSender;
 use aptos_storage_interface::DbReader;
-use aptos_types::chain_id::ChainId;
+use aptos_types::{chain_id::ChainId, indexer::indexer_db_reader::IndexerReader};
+use futures::channel::oneshot;
 use poem::{
-    http::{header, Method},
+    handler,
+    http::Method,
     listener::{Listener, RustlsCertificate, RustlsConfig, TcpListener},
-    middleware::Cors,
+    middleware::{Compression, Cors},
+    web::Html,
     EndpointExt, Route, Server,
 };
 use poem_openapi::{ContactObject, LicenseObject, OpenApiService};
@@ -33,14 +45,57 @@ pub fn bootstrap(
     chain_id: ChainId,
     db: Arc<dyn DbReader>,
     mp_sender: MempoolClientSender,
+    indexer_reader: Option<Arc<dyn IndexerReader>>,
+    port_tx: Option<oneshot::Sender<u16>>,
 ) -> anyhow::Result<Runtime> {
     let max_runtime_workers = get_max_runtime_workers(&config.api);
     let runtime = aptos_runtimes::spawn_named_runtime("api".into(), Some(max_runtime_workers));
 
-    let context = Context::new(chain_id, db, mp_sender, config.clone());
+    let context = Context::new(chain_id, db, mp_sender, config.clone(), indexer_reader);
 
-    attach_poem_to_runtime(runtime.handle(), context, config, false)
+    attach_poem_to_runtime(runtime.handle(), context.clone(), config, false, port_tx)
         .context("Failed to attach poem to runtime")?;
+
+    let context_cloned = context.clone();
+    if let Some(period_ms) = config.api.periodic_gas_estimation_ms {
+        runtime.spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_millis(period_ms));
+            loop {
+                interval.tick().await;
+                let context_cloned = context_cloned.clone();
+                tokio::task::spawn_blocking(move || {
+                    if let Ok(latest_ledger_info) =
+                        context_cloned.get_latest_ledger_info::<crate::response::BasicError>()
+                    {
+                        if let Ok(gas_estimation) = context_cloned
+                            .estimate_gas_price::<crate::response::BasicError>(&latest_ledger_info)
+                        {
+                            TransactionsApi::log_gas_estimation(&gas_estimation);
+                        }
+                    }
+                })
+                .await
+                .unwrap_or(());
+            }
+        });
+    }
+
+    let context_cloned = context.clone();
+    if let Some(period_sec) = config.api.periodic_function_stats_sec {
+        runtime.spawn(async move {
+            let mut interval = tokio::time::interval(tokio::time::Duration::from_secs(period_sec));
+            loop {
+                interval.tick().await;
+                let context_cloned = context_cloned.clone();
+                tokio::task::spawn_blocking(move || {
+                    context_cloned.view_function_stats().log_and_clear();
+                    context_cloned.simulate_txn_stats().log_and_clear();
+                })
+                .await
+                .unwrap_or(());
+            }
+        });
+    }
 
     Ok(runtime)
 }
@@ -114,6 +169,7 @@ pub fn attach_poem_to_runtime(
     context: Context,
     config: &NodeConfig,
     random_port: bool,
+    port_tx: Option<oneshot::Sender<u16>>,
 ) -> anyhow::Result<SocketAddr> {
     let context = Arc::new(context);
 
@@ -121,9 +177,10 @@ pub fn attach_poem_to_runtime(
 
     let api_service = get_api_service(context.clone());
 
-    let spec_json = api_service.spec_endpoint();
-    let spec_yaml = api_service.spec_endpoint_yaml();
+    let spec_json = spec_endpoint_json(&api_service);
+    let spec_yaml = spec_endpoint_yaml(&api_service);
 
+    let config = config.clone();
     let mut address = config.api.address;
 
     if random_port {
@@ -163,27 +220,30 @@ pub fn attach_poem_to_runtime(
     let actual_address = *actual_address
         .as_socket_addr()
         .context("Failed to get socket addr from local addr for Poem webserver")?;
+
+    if let Some(port_tx) = port_tx {
+        port_tx
+            .send(actual_address.port())
+            .map_err(|_| anyhow!("Failed to send port"))?;
+    }
+
     runtime_handle.spawn(async move {
         let cors = Cors::new()
             // To allow browsers to use cookies (for cookie-based sticky
             // routing in the LB) we must enable this:
             // https://stackoverflow.com/a/24689738/3846032
             .allow_credentials(true)
-            .allow_methods(vec![Method::GET, Method::POST])
-            .allow_headers(vec![
-                header::HeaderName::from_static(X_APTOS_CLIENT),
-                header::CONTENT_TYPE,
-                header::ACCEPT,
-            ]);
+            .allow_methods(vec![Method::GET, Method::POST]);
 
         // Build routes for the API
         let route = Route::new()
+            .at("/", poem::get(root_handler))
             .nest(
                 "/v1",
                 Route::new()
                     .nest("/", api_service)
-                    .at("/spec.json", spec_json)
-                    .at("/spec.yaml", spec_yaml)
+                    .at("/spec.json", poem::get(spec_json))
+                    .at("/spec.yaml", poem::get(spec_yaml))
                     // TODO: We add this manually outside of the OpenAPI spec for now.
                     // https://github.com/poem-web/poem/issues/364
                     .at(
@@ -192,6 +252,7 @@ pub fn attach_poem_to_runtime(
                     ),
             )
             .with(cors)
+            .with_if(config.api.compression_enabled, Compression::new())
             .with(PostSizeLimit::new(size_limit))
             // NOTE: Make sure to keep this after all the `with` middleware.
             .catch_all_error(convert_error)
@@ -205,6 +266,24 @@ pub fn attach_poem_to_runtime(
     info!("API server is running at {}", actual_address);
 
     Ok(actual_address)
+}
+
+#[handler]
+async fn root_handler() -> Html<&'static str> {
+    let response = "<html>
+<head>
+    <title>Aptos Node API</title>
+</head>
+<body>
+    <p>
+        Welcome! The latest node API can be found at <a href=\"/v1\">/v1<a/>.
+    </p>
+    <p>
+        Learn more about the v1 node API here: <a href=\"/v1/spec\">/v1/spec<a/>.
+    </p>
+</body>
+</html>";
+    Html(response)
 }
 
 /// Returns the maximum number of runtime workers to be given to the
@@ -283,6 +362,8 @@ mod tests {
             ChainId::test(),
             context.db.clone(),
             context.mempool.ac_client.clone(),
+            None,
+            None,
         );
         assert!(ret.is_ok());
 

@@ -2,15 +2,16 @@
 // Copyright (c) The Move Contributors
 // SPDX-License-Identifier: Apache-2.0
 
-use invalid_mutations::signature::{FieldRefMutation, SignatureRefMutation};
 use move_binary_format::file_format::{
     Bytecode::*, CompiledModule, SignatureToken::*, Visibility::Public, *,
 };
 use move_bytecode_verifier::{
     verify_module, verify_module_with_config_for_test, SignatureChecker, VerifierConfig,
 };
+use move_bytecode_verifier_invalid_mutations::signature::{FieldRefMutation, SignatureRefMutation};
 use move_core_types::{
-    account_address::AccountAddress, identifier::Identifier, vm_status::StatusCode,
+    ability::AbilitySet, account_address::AccountAddress, identifier::Identifier,
+    vm_status::StatusCode,
 };
 use proptest::{collection::vec, prelude::*, sample::Index as PropIndex};
 
@@ -61,6 +62,7 @@ proptest! {
 fn no_verify_locals_good() {
     let compiled_module_good = CompiledModule {
         version: move_binary_format::file_format_common::VERSION_MAX,
+
         module_handles: vec![ModuleHandle {
             address: AddressIdentifierIndex(0),
             name: IdentifierIndex(0),
@@ -79,6 +81,7 @@ fn no_verify_locals_good() {
                 return_: SignatureIndex(2),
                 parameters: SignatureIndex(0),
                 type_parameters: vec![],
+                access_specifiers: None,
             },
             FunctionHandle {
                 module: ModuleHandleIndex(0),
@@ -86,6 +89,7 @@ fn no_verify_locals_good() {
                 return_: SignatureIndex(2),
                 parameters: SignatureIndex(1),
                 type_parameters: vec![],
+                access_specifiers: None,
             },
         ],
         field_handles: vec![],
@@ -124,6 +128,10 @@ fn no_verify_locals_good() {
                 }),
             },
         ],
+        struct_variant_handles: vec![],
+        struct_variant_instantiations: vec![],
+        variant_field_handles: vec![],
+        variant_field_instantiations: vec![],
     };
     assert!(verify_module(&compiled_module_good).is_ok());
 }
@@ -179,6 +187,7 @@ fn big_signature_test() {
             parameters: SignatureIndex(1),
             return_: SignatureIndex(0),
             type_parameters: vec![],
+            access_specifiers: None,
         }],
         field_handles: vec![],
         friend_decls: vec![],
@@ -207,6 +216,10 @@ fn big_signature_test() {
                 code,
             }),
         }],
+        struct_variant_handles: vec![],
+        struct_variant_instantiations: vec![],
+        variant_field_handles: vec![],
+        variant_field_instantiations: vec![],
     };
 
     // save module and verify that it can ser/de

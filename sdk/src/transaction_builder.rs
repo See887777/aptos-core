@@ -12,7 +12,10 @@ use crate::{
 pub use aptos_cached_packages::aptos_stdlib;
 use aptos_crypto::{ed25519::Ed25519PublicKey, HashValue};
 use aptos_global_constants::{GAS_UNIT_PRICE, MAX_GAS_AMOUNT};
-use aptos_types::transaction::{EntryFunction, ModuleBundle, Script};
+use aptos_types::{
+    function_info::FunctionInfo,
+    transaction::{EntryFunction, Script},
+};
 
 pub struct TransactionBuilder {
     sender: Option<AccountAddress>,
@@ -137,14 +140,12 @@ impl TransactionFactory {
         self.transaction_expiration_time
     }
 
-    pub fn payload(&self, payload: TransactionPayload) -> TransactionBuilder {
-        self.transaction_builder(payload)
+    pub fn get_chain_id(&self) -> ChainId {
+        self.chain_id
     }
 
-    pub fn module(&self, code: Vec<u8>) -> TransactionBuilder {
-        self.payload(TransactionPayload::ModuleBundle(ModuleBundle::singleton(
-            code,
-        )))
+    pub fn payload(&self, payload: TransactionPayload) -> TransactionBuilder {
+        self.transaction_builder(payload)
     }
 
     pub fn entry_function(&self, func: EntryFunction) -> TransactionBuilder {
@@ -155,6 +156,19 @@ impl TransactionFactory {
         self.payload(aptos_stdlib::aptos_account_create_account(
             AuthenticationKey::ed25519(public_key).account_address(),
         ))
+    }
+
+    pub fn add_dispatchable_authentication_function(
+        &self,
+        function_info: FunctionInfo,
+    ) -> TransactionBuilder {
+        self.payload(
+            aptos_stdlib::account_abstraction_add_authentication_function(
+                function_info.module_address,
+                function_info.module_name.into_bytes(),
+                function_info.function_name.into_bytes(),
+            ),
+        )
     }
 
     pub fn implicitly_create_user_account_and_transfer(
@@ -187,6 +201,36 @@ impl TransactionFactory {
             vec![],
             vec![],
         ))
+    }
+
+    pub fn create_multisig_account_with_existing_account(
+        &self,
+        owners: Vec<AccountAddress>,
+        signatures_required: u64,
+    ) -> TransactionBuilder {
+        self.payload(
+            aptos_stdlib::multisig_account_create_with_existing_account_call(
+                owners,
+                signatures_required,
+                vec![],
+                vec![],
+            ),
+        )
+    }
+
+    pub fn create_multisig_account_with_existing_account_and_revoke_auth_key(
+        &self,
+        owners: Vec<AccountAddress>,
+        signatures_required: u64,
+    ) -> TransactionBuilder {
+        self.payload(
+            aptos_stdlib::multisig_account_create_with_existing_account_and_revoke_auth_key_call(
+                owners,
+                signatures_required,
+                vec![],
+                vec![],
+            ),
+        )
     }
 
     pub fn create_multisig_transaction(
@@ -263,26 +307,5 @@ impl TransactionFactory {
             .unwrap()
             .as_secs()
             + self.transaction_expiration_time
-    }
-}
-
-pub struct DualAttestationMessage {
-    message: Box<[u8]>,
-}
-
-impl DualAttestationMessage {
-    pub fn new<M: Into<Vec<u8>>>(metadata: M, reciever: AccountAddress, amount: u64) -> Self {
-        let mut message = metadata.into();
-        bcs::serialize_into(&mut message, &reciever).unwrap();
-        bcs::serialize_into(&mut message, &amount).unwrap();
-        message.extend(b"@@$$APTOS_ATTEST$$@@");
-
-        Self {
-            message: message.into(),
-        }
-    }
-
-    pub fn message(&self) -> &[u8] {
-        &self.message
     }
 }

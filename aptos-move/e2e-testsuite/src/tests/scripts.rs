@@ -9,11 +9,12 @@ use aptos_types::{
     transaction::{ExecutionStatus, Script, TransactionStatus},
 };
 use move_binary_format::file_format::{
-    empty_script, Ability, AbilitySet, AddressIdentifierIndex, Bytecode, FunctionHandle,
-    FunctionHandleIndex, FunctionInstantiation, FunctionInstantiationIndex, IdentifierIndex,
-    ModuleHandle, ModuleHandleIndex, Signature, SignatureIndex, SignatureToken,
+    empty_script, AddressIdentifierIndex, Bytecode, FunctionHandle, FunctionHandleIndex,
+    FunctionInstantiation, FunctionInstantiationIndex, IdentifierIndex, ModuleHandle,
+    ModuleHandleIndex, Signature, SignatureIndex, SignatureToken,
 };
 use move_core_types::{
+    ability::{Ability, AbilitySet},
     identifier::Identifier,
     language_storage::{StructTag, TypeTag},
     vm_status::{StatusCode, StatusCode::LINKER_ERROR},
@@ -63,7 +64,7 @@ fn script_code_unverifiable() {
         .read_account_resource(sender.account())
         .expect("sender must exist");
     let updated_sender_balance = executor
-        .read_coin_store_resource(sender.account())
+        .read_apt_coin_store_resource(sender.account())
         .expect("sender balance must exist");
     assert_eq!(balance, updated_sender_balance.coin());
     assert_eq!(11, updated_sender.sequence_number());
@@ -99,6 +100,7 @@ fn script_none_existing_module_dep() {
         parameters: SignatureIndex(0),
         return_: SignatureIndex(0),
         type_parameters: vec![],
+        access_specifiers: None,
     };
     script.function_handles.push(fun_handle);
 
@@ -141,7 +143,7 @@ fn script_none_existing_module_dep() {
         .read_account_resource(sender.account())
         .expect("sender must exist");
     let updated_sender_balance = executor
-        .read_coin_store_resource(sender.account())
+        .read_apt_coin_store_resource(sender.account())
         .expect("sender balance must exist");
     assert_eq!(balance, updated_sender_balance.coin());
     assert_eq!(11, updated_sender.sequence_number());
@@ -177,6 +179,7 @@ fn script_non_existing_function_dep() {
         parameters: SignatureIndex(0),
         return_: SignatureIndex(0),
         type_parameters: vec![],
+        access_specifiers: None,
     };
     script.function_handles.push(fun_handle);
 
@@ -219,7 +222,7 @@ fn script_non_existing_function_dep() {
         .read_account_resource(sender.account())
         .expect("sender must exist");
     let updated_sender_balance = executor
-        .read_coin_store_resource(sender.account())
+        .read_apt_coin_store_resource(sender.account())
         .expect("sender balance must exist");
     assert_eq!(balance, updated_sender_balance.coin());
     assert_eq!(11, updated_sender.sequence_number());
@@ -257,6 +260,7 @@ fn script_bad_sig_function_dep() {
         parameters: SignatureIndex(0),
         return_: SignatureIndex(0),
         type_parameters: vec![],
+        access_specifiers: None,
     };
     script.function_handles.push(fun_handle);
 
@@ -298,7 +302,7 @@ fn script_bad_sig_function_dep() {
         .read_account_resource(sender.account())
         .expect("sender must exist");
     let updated_sender_balance = executor
-        .read_coin_store_resource(sender.account())
+        .read_apt_coin_store_resource(sender.account())
         .expect("sender balance must exist");
     assert_eq!(balance, updated_sender_balance.coin());
     assert_eq!(11, updated_sender.sequence_number());
@@ -339,7 +343,7 @@ fn script_type_argument_module_does_not_exist() {
                 address,
                 module,
                 name: Identifier::new("fake").unwrap(),
-                type_params: vec![],
+                type_args: vec![],
             }))],
             vec![],
         ))
@@ -364,7 +368,7 @@ fn script_type_argument_module_does_not_exist() {
         .read_account_resource(sender.account())
         .expect("sender must exist");
     let updated_sender_balance = executor
-        .read_coin_store_resource(sender.account())
+        .read_apt_coin_store_resource(sender.account())
         .expect("sender balance must exist");
     assert_eq!(balance, updated_sender_balance.coin());
     assert_eq!(11, updated_sender.sequence_number());
@@ -406,7 +410,7 @@ fn script_nested_type_argument_module_does_not_exist() {
                     address,
                     module,
                     name: Identifier::new("fake").unwrap(),
-                    type_params: vec![],
+                    type_args: vec![],
                 },
             ))))],
             vec![],
@@ -432,7 +436,7 @@ fn script_nested_type_argument_module_does_not_exist() {
         .read_account_resource(sender.account())
         .expect("sender must exist");
     let updated_sender_balance = executor
-        .read_coin_store_resource(sender.account())
+        .read_apt_coin_store_resource(sender.account())
         .expect("sender balance must exist");
     assert_eq!(balance, updated_sender_balance.coin());
     assert_eq!(11, updated_sender.sequence_number());
@@ -465,6 +469,7 @@ fn forbid_script_emitting_events() {
         type_parameters: vec![
             AbilitySet::singleton(Ability::Store) | AbilitySet::singleton(Ability::Drop),
         ],
+        access_specifiers: None,
     });
     script.module_handles.push(ModuleHandle {
         address: AddressIdentifierIndex(0),
@@ -512,7 +517,7 @@ fn forbid_script_emitting_events() {
         .read_account_resource(sender.account())
         .expect("sender must exist");
     let updated_sender_balance = executor
-        .read_coin_store_resource(sender.account())
+        .read_apt_coin_store_resource(sender.account())
         .expect("sender balance must exist");
     assert_eq!(balance, updated_sender_balance.coin());
     assert_eq!(11, updated_sender.sequence_number());

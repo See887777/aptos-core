@@ -39,6 +39,13 @@ impl VoteData {
         Self { proposed, parent }
     }
 
+    pub fn dummy() -> Self {
+        Self {
+            proposed: BlockInfo::empty(),
+            parent: BlockInfo::empty(),
+        }
+    }
+
     /// Returns block information associated to the block being extended by the proposal.
     pub fn parent(&self) -> &BlockInfo {
         &self.parent

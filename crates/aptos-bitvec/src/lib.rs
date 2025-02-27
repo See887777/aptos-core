@@ -64,7 +64,7 @@ const MAX_BUCKETS: usize = 8192;
 /// assert!(intersection.is_set(2));
 /// assert_eq!(false, intersection.is_set(3));
 /// ```
-#[derive(Clone, Default, Debug, Eq, PartialEq, Serialize)]
+#[derive(Clone, Default, Debug, Eq, Hash, PartialEq, Serialize)]
 pub struct BitVec {
     #[serde(with = "serde_bytes")]
     inner: Vec<u8>,
@@ -204,10 +204,28 @@ impl From<BitVec> for Vec<u8> {
 
 impl From<Vec<bool>> for BitVec {
     fn from(bits: Vec<bool>) -> Self {
+        BitVec::from(&bits)
+    }
+}
+
+impl From<&Vec<bool>> for BitVec {
+    fn from(bits: &Vec<bool>) -> Self {
         assert!(bits.len() <= MAX_BUCKETS * BUCKET_SIZE);
         let mut bitvec = Self::with_num_bits(bits.len() as u16);
         for (index, b) in bits.iter().enumerate() {
             if *b {
+                bitvec.set(index as u16);
+            }
+        }
+        bitvec
+    }
+}
+
+impl FromIterator<bool> for BitVec {
+    fn from_iter<T: IntoIterator<Item = bool>>(iter: T) -> Self {
+        let mut bitvec = Self::default();
+        for (index, bit) in iter.into_iter().enumerate() {
+            if bit {
                 bitvec.set(index as u16);
             }
         }

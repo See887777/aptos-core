@@ -7,9 +7,10 @@ use crate::{
     expansion::ast::{self as E, Address, ModuleIdent},
     shared::{unique_map::UniqueMap, *},
 };
+use move_core_types::account_address::AccountAddress;
 use move_ir_types::location::*;
 use move_symbol_pool::Symbol;
-use petgraph::{algo::toposort as petgraph_toposort, graphmap::DiGraphMap};
+use petgraph::{algo::toposort as petgraph_toposort, graphmap::DiGraphMap, visit::Dfs};
 use std::collections::{BTreeMap, BTreeSet};
 
 //**************************************************************************************************
@@ -21,8 +22,7 @@ pub fn verify(
     modules: &mut UniqueMap<ModuleIdent, E::ModuleDefinition>,
     scripts: &mut BTreeMap<Symbol, E::Script>,
 ) {
-    let imm_modules = &modules;
-    let mut context = Context::new(imm_modules);
+    let mut context = Context::new(modules);
     module_defs(&mut context, modules);
     script_defs(&mut context, scripts);
 
@@ -32,11 +32,16 @@ pub fn verify(
         addresses_by_node,
         ..
     } = context;
-    let graph = dependency_graph(&module_neighbors);
+    let imm_module_idents = modules
+        .key_cloned_iter()
+        .map(|(mident, _)| mident)
+        .collect::<Vec<_>>();
+    let graph = dependency_graph(&module_neighbors, &imm_module_idents);
+    let graph = add_implicit_vector_dependencies(graph);
     match petgraph_toposort(&graph, None) {
         Err(cycle_node) => {
             let cycle_ident = *cycle_node.node_id();
-            let error = cycle_error(&module_neighbors, cycle_ident);
+            let error = cycle_error(&module_neighbors, cycle_ident, &graph);
             compilation_env.add_diag(error);
         },
         Ok(ordered_ids) => {
@@ -86,7 +91,7 @@ enum NodeIdent {
 
 struct Context<'a> {
     modules: &'a UniqueMap<ModuleIdent, E::ModuleDefinition>,
-    // A union of uses and friends for modules (used for cyclyc dependency checking)
+    // A union of uses and friends for modules (used for cyclic dependency checking)
     // - if A uses B,    add edge A -> B
     // - if A friends B, add edge B -> A
     // NOTE: neighbors of scripts are not tracked by this field, as nothing can depend on a script
@@ -133,10 +138,7 @@ impl<'a> Context<'a> {
             .neighbors_by_node
             .entry(current.clone())
             .or_insert_with(UniqueMap::new);
-        let current_used_addresses = self
-            .addresses_by_node
-            .entry(current.clone())
-            .or_insert_with(BTreeSet::new);
+        let current_used_addresses = self.addresses_by_node.entry(current.clone()).or_default();
         current_neighbors.remove(&mident);
         current_neighbors.add(mident, neighbor).unwrap();
         current_used_addresses.insert(mident.value.address);
@@ -150,9 +152,9 @@ impl<'a> Context<'a> {
                 let m = self
                     .module_neighbors
                     .entry(node)
-                    .or_insert_with(BTreeMap::new)
+                    .or_default()
                     .entry(new_neighbor)
-                    .or_insert_with(BTreeMap::new);
+                    .or_default();
                 if m.contains_key(&dep_type) {
                     return;
                 }
@@ -173,15 +175,50 @@ impl<'a> Context<'a> {
     fn add_address_usage(&mut self, address: Address) {
         self.addresses_by_node
             .entry(self.current_node.clone().unwrap())
-            .or_insert_with(BTreeSet::new)
+            .or_default()
             .insert(address);
     }
 }
 
-fn dependency_graph(
-    deps: &BTreeMap<ModuleIdent, BTreeMap<ModuleIdent, BTreeMap<DepType, Loc>>>,
+/// If the `vector` module is present in `graph`, then add dependency edges
+/// from every module (not in the `vector` module's dependency closure) to the
+/// `vector` module. This is because modules can have implicit dependencies
+/// on the `vector` module.
+fn add_implicit_vector_dependencies(
+    mut graph: DiGraphMap<&ModuleIdent, ()>,
 ) -> DiGraphMap<&ModuleIdent, ()> {
+    let vector_module = graph.nodes().find(|m| {
+        m.value.address.into_addr_bytes().into_inner() == AccountAddress::ONE
+            && m.value.module.0.value.as_str() == "vector"
+    });
+    if let Some(vector_module) = vector_module {
+        let mut dfs = Dfs::new(&graph, vector_module);
+        // Get the transitive closure of the `vector` module and its dependencies.
+        let mut vector_dep_closure = BTreeSet::new();
+        while let Some(node) = dfs.next(&graph) {
+            vector_dep_closure.insert(node);
+        }
+        // For every module that is not in `vector_dep_closure`, add an edge to `vector_module`.
+        let all_modules = graph.nodes().collect::<Vec<_>>();
+        for module in all_modules {
+            if !vector_dep_closure.contains(module) {
+                graph.add_edge(module, vector_module, ());
+            }
+        }
+    }
+    graph
+}
+
+/// Construct a directed graph based on the dependencies `deps` between modules.
+/// `additional_nodes` are added to the graph (if they are not present in `deps`).
+fn dependency_graph<'a>(
+    deps: &'a BTreeMap<ModuleIdent, BTreeMap<ModuleIdent, BTreeMap<DepType, Loc>>>,
+    additional_nodes: &'a Vec<ModuleIdent>,
+) -> DiGraphMap<&'a ModuleIdent, ()> {
     let mut graph = DiGraphMap::new();
+    for node in additional_nodes {
+        graph.add_node(node);
+    }
     for (parent, children) in deps {
         if children.is_empty() {
             graph.add_node(parent);
@@ -197,17 +234,26 @@ fn dependency_graph(
 fn cycle_error(
     deps: &BTreeMap<ModuleIdent, BTreeMap<ModuleIdent, BTreeMap<DepType, Loc>>>,
     cycle_ident: ModuleIdent,
+    graph: &DiGraphMap<&ModuleIdent, ()>,
 ) -> Diagnostic {
-    let graph = dependency_graph(deps);
     // For printing uses, sort the cycle by location (earliest first)
-    let cycle = shortest_cycle(&graph, &cycle_ident);
+    let cycle = shortest_cycle(graph, &cycle_ident);
 
     let mut cycle_info = cycle
         .windows(2)
         .map(|pair| {
             let node = pair[0];
             let neighbor = pair[1];
-            let relations = deps.get(node).unwrap().get(neighbor).unwrap();
+            let relations = deps
+                .get(node)
+                .and_then(|neighbors| neighbors.get(neighbor).cloned())
+                .unwrap_or_else(|| {
+                    let mut mapping = BTreeMap::new();
+                    // Implicit dependency of a module on `vector` is the only one that does not
+                    // show up explicitly in `deps`. So, we add it here.
+                    mapping.insert(DepType::Use, node.loc);
+                    mapping
+                });
             match (
                 relations.get(&DepType::Use),
                 relations.get(&DepType::Friend),
@@ -215,14 +261,14 @@ fn cycle_error(
                 (Some(loc), _) => (
                     *loc,
                     DepType::Use,
-                    format!("'{}' uses '{}'", neighbor, node),
+                    format!("`{}` uses `{}`", neighbor, node),
                     node,
                     neighbor,
                 ),
                 (_, Some(loc)) => (
                     *loc,
                     DepType::Friend,
-                    format!("'{}' is a friend of '{}'", node, neighbor),
+                    format!("`{}` is a friend of `{}`", node, neighbor),
                     node,
                     neighbor,
                 ),
@@ -244,7 +290,7 @@ fn cycle_error(
             DepType::Friend => "friend",
         };
         let msg = format!(
-            "{}. This '{}' relationship creates a dependency cycle.",
+            "{}. This `{}` relationship creates a dependency cycle.",
             case_msg, case
         );
         (loc, msg)
@@ -338,8 +384,15 @@ fn function_acquires(context: &mut Context, acqs: &[E::ModuleAccess]) {
 //**************************************************************************************************
 
 fn struct_def(context: &mut Context, sdef: &E::StructDefinition) {
-    if let E::StructFields::Defined(fields) = &sdef.fields {
+    if let E::StructLayout::Singleton(fields, _) = &sdef.layout {
         fields.iter().for_each(|(_, _, (_, bt))| type_(context, bt));
+    } else if let E::StructLayout::Variants(variants) = &sdef.layout {
+        for variant in variants {
+            variant
+                .fields
+                .iter()
+                .for_each(|(_, _, (_, bt))| type_(context, bt));
+        }
     }
 }
 
@@ -348,7 +401,7 @@ fn struct_def(context: &mut Context, sdef: &E::StructDefinition) {
 //**************************************************************************************************
 
 fn module_access(context: &mut Context, sp!(loc, ma_): &E::ModuleAccess) {
-    if let E::ModuleAccess_::ModuleAccess(m, _) = ma_ {
+    if let E::ModuleAccess_::ModuleAccess(m, _, _) = ma_ {
         context.add_usage(*m, *loc)
     }
 }
@@ -369,7 +422,7 @@ fn type_(context: &mut Context, sp!(_, ty_): &E::Type) {
             types(context, tys);
         },
         T::Multiple(tys) => types(context, tys),
-        T::Fun(tys, ret_ty) => {
+        T::Fun(tys, ret_ty, _abilities) => {
             types(context, tys);
             type_(context, ret_ty)
         },
@@ -417,7 +470,7 @@ fn lvalues_with_range(context: &mut Context, sp!(_, ll): &E::LValueWithRangeList
 
 fn lvalue(context: &mut Context, sp!(_loc, a_): &E::LValue) {
     use E::LValue_ as L;
-    if let L::Unpack(m, bs_opt, f) = a_ {
+    if let L::Unpack(m, bs_opt, f, _) = a_ {
         module_access(context, m);
         types_opt(context, bs_opt);
         lvalues(context, f.iter().map(|(_, _, (_, b))| b));
@@ -431,8 +484,8 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
 
         E::Unit { .. }
         | E::UnresolvedError
-        | E::Break
-        | E::Continue
+        | E::Break(_)
+        | E::Continue(_)
         | E::Spec(_, _, _)
         | E::Value(_)
         | E::Move(_)
@@ -445,6 +498,10 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
         E::Call(ma, _is_macro, tys_opt, sp!(_, args_)) => {
             module_access(context, ma);
             types_opt(context, tys_opt);
+            args_.iter().for_each(|e| exp(context, e))
+        },
+        E::ExpCall(fexp, sp!(_, args_)) => {
+            exp(context, fexp);
             args_.iter().for_each(|e| exp(context, e))
         },
         E::Pack(ma, tys_opt, fields) => {
@@ -463,7 +520,18 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
             exp(context, ef)
         },
 
-        E::BinopExp(e1, _, e2) | E::Mutate(e1, e2) | E::While(e1, e2) | E::Index(e1, e2) => {
+        E::Match(ed, arms) => {
+            exp(context, ed);
+            for arm in arms {
+                lvalues(context, &arm.value.0.value);
+                if let Some(e) = &arm.value.1 {
+                    exp(context, e)
+                }
+                exp(context, &arm.value.2)
+            }
+        },
+
+        E::BinopExp(e1, _, e2) | E::Mutate(e1, e2) | E::While(_, e1, e2) | E::Index(e1, e2) => {
             exp(context, e1);
             exp(context, e2)
         },
@@ -477,7 +545,7 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
             exp(context, e);
         },
 
-        E::Loop(e)
+        E::Loop(_, e)
         | E::Return(e)
         | E::Abort(e)
         | E::Dereference(e)
@@ -492,9 +560,15 @@ fn exp(context: &mut Context, sp!(_loc, e_): &E::Exp) {
             exp(context, e);
             type_(context, ty)
         },
+        E::Test(e, tys) => {
+            exp(context, e);
+            tys.iter().for_each(|ty| type_(context, ty))
+        },
 
-        E::Lambda(ll, e) => {
-            lvalues(context, &ll.value);
+        E::Lambda(ll, e, _capture_kind) => {
+            use crate::expansion::ast::TypedLValue_;
+            let mapped = ll.value.iter().map(|sp!(_, TypedLValue_(lv, _opt_ty))| lv);
+            lvalues(context, mapped);
             exp(context, e)
         },
         E::Quant(_, binds, es_vec, eopt, e) => {
@@ -571,7 +645,7 @@ fn spec_block_member(context: &mut Context, sp!(_, sbm_): &E::SpecBlockMember) {
                         Some(E::PragmaValue::Literal(_)) => (),
                         Some(E::PragmaValue::Ident(maccess)) => match &maccess.value {
                             E::ModuleAccess_::Name(_) => (),
-                            E::ModuleAccess_::ModuleAccess(mident, _) => {
+                            E::ModuleAccess_::ModuleAccess(mident, _, _) => {
                                 context.add_friend(*mident, maccess.loc);
                             },
                         },

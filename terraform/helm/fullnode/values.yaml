@@ -9,6 +9,8 @@ chain:
   era: 1
   # -- Name of the testnet to connect to. There must be a corresponding entry in .Values.aptos_chains
   name: devnet
+  # -- The value of the `chain_name` label. If empty, defaults to `.Values.chain.name`
+  label:
   # -- Kubernetes Configmap from which to load the genesis.blob and waypoint.txt
   genesisConfigmap:
   # -- Kubernetes Secret from which to load the genesis.blob and waypoint.txt
@@ -20,7 +22,7 @@ aptos_chains:
     waypoint_txt_url: https://devnet.aptoslabs.com/waypoint.txt
     genesis_blob_url: https://devnet.aptoslabs.com/genesis.blob
   testnet:
-    waypoint_txt_url: https://raw.githubusercontent.com/aptos-labs/aptos-networks/main/testnet/waypoint.txt
+    waypoint_txt_url: https://raw.githubusercontent.com/aptos-labs/aptos-networks/main/testnet/genesis_waypoint.txt
     genesis_blob_url: https://raw.githubusercontent.com/aptos-labs/aptos-networks/main/testnet/genesis.blob
   mainnet:
     waypoint_txt_url: https://raw.githubusercontent.com/aptos-labs/aptos-networks/main/mainnet/waypoint.txt
@@ -49,11 +51,11 @@ image:
 
 resources:
   limits:
-    cpu: 14
-    memory: 26Gi
+    cpu: 30
+    memory: 60Gi
   requests:
-    cpu: 14
-    memory: 26Gi
+    cpu: 30
+    memory: 60Gi
 
 nodeSelector: {}
 tolerations: []
@@ -64,12 +66,18 @@ storage:
   class:
   # -- Size of fullnode persistent storage
   size: 1000Gi
+  # -- The name of a VolumeSnapshot to restore from. In unset, the fullnode will start from scratch.
+  snapshotRefForRestore:
 
 service:
   # -- The Kubernetes ServiceType to use for the fullnode. Change this to LoadBalancer expose the REST API, aptosnet endpoint externally
   type: ClusterIP
   # -- Whether to expose the node REST API
   exposeApi: true
+  # -- Whether to expose the metrics port on fullnodes
+  exposeMetrics: false
+  # -- Whether to expose the admin port on fullnodes
+  exposeAdmin: false
   # -- The externalTrafficPolicy for the fullnode service
   externalTrafficPolicy:
   # -- If set and if the ServiceType is LoadBalancer, allow traffic to fullnode from these CIDRs
@@ -96,6 +104,10 @@ logging:
   # -- Address for remote logging
   address:
 
+metrics:
+  # -- The upstream sink for metrics. Supported values are "dev" and "prod"
+  destination: dev
+
 backup:
   image:
     # -- Image repo to use for backup images
@@ -106,11 +118,11 @@ backup:
     pullPolicy: IfNotPresent
   resources:
     limits:
-      cpu: 1
-      memory: 1Gi
+      cpu: 6
+      memory: 8Gi
     requests:
-      cpu: 1
-      memory: 1Gi
+      cpu: 4
+      memory: 4Gi
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -123,39 +135,46 @@ backup:
       bucket:
     gcs:
       bucket:
+    r2:
+      bucket:
+      endpoint_url:
     azure:
       account:
       container:
       sas:
     # -- State snapshot interval epochs
-    state_snapshot_interval_epochs: 1
+    state_snapshot_interval_epochs: 2
     # -- Transaction batch size
     transaction_batch_size: 1000000
+    # -- Number of concurrent requests to the PFN backup port
+    concurrent_data_requests:
 
 backup_verify:
   # -- The schedule for backup verification
   schedule: "@daily"
   resources:
     limits:
-      cpu: 4
-      memory: 8Gi
+      cpu: 32
+      memory: 60Gi
     requests:
-      cpu: 4
+      cpu: 8
       memory: 8Gi
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  config:
+    concurrent_downloads: 50
 
 backup_compaction:
   # -- The schedule for backup compaction
   schedule: "@daily"
   resources:
     limits:
-      cpu: 1
-      memory: 1Gi
+      cpu: 8
+      memory: 32Gi
     requests:
-      cpu: 1
-      memory: 1Gi
+      cpu: 4
+      memory: 16Gi
   nodeSelector: {}
   tolerations: []
   affinity: {}
@@ -170,14 +189,15 @@ restore:
     pullPolicy: IfNotPresent
   resources:
     limits:
-      cpu: 6
-      memory: 15Gi
+      cpu: 16
+      memory: 120Gi
     requests:
-      cpu: 6
-      memory: 15Gi
+      cpu: 16
+      memory: 120Gi
   nodeSelector: {}
   tolerations: []
   affinity: {}
+  enabled: false
   config:
     # -- Which of the below backup configurations to use
     location:
@@ -192,6 +212,12 @@ restore:
     # -- List of trusted waypoints for restore
     trusted_waypoints: []
     # -- Number of concurrent downloads for restore
-    concurrent_downloads: 2
+    concurrent_downloads: 16
     # -- If set, specifies a different era to restore other than the default era set in chain.era
     restore_era:
+    # -- Increase this value to trigger a restore from scratch, wiping the DB.
+    restore_epoch: 0
+    # -- Start from genesis.
+    start_version: 0
+    # -- Restore to the latest version.
+    target_version:

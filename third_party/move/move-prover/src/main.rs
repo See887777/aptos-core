@@ -5,7 +5,7 @@
 #![forbid(unsafe_code)]
 
 use codespan_reporting::term::termcolor::{ColorChoice, StandardStream};
-use move_prover::{cli::Options, run_move_prover};
+use move_prover::{cli::Options, run_move_prover_v2};
 use std::env;
 
 fn main() {
@@ -30,5 +30,5 @@ fn run() -> anyhow::Result<()> {
     };
     options.setup_logging();
     let mut error_writer = StandardStream::stderr(color);
-    run_move_prover(&mut error_writer, options)
+    run_move_prover_v2(&mut error_writer, options)
 }

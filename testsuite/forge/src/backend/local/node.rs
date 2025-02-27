@@ -4,8 +4,14 @@
 
 use crate::{FullNode, HealthCheckError, LocalVersion, Node, NodeExt, Validator, Version};
 use anyhow::{anyhow, ensure, Context, Result};
-use aptos_config::{config::NodeConfig, keys::ConfigKey};
-use aptos_db::{fast_sync_storage_wrapper::SECONDARY_DB_DIR, LEDGER_DB_NAME, STATE_MERKLE_DB_NAME};
+use aptos_config::{
+    config::{NodeConfig, SECURE_STORAGE_FILENAME},
+    keys::ConfigKey,
+};
+use aptos_db::{
+    common::{LEDGER_DB_NAME, STATE_MERKLE_DB_NAME},
+    fast_sync_storage_wrapper::SECONDARY_DB_DIR,
+};
 use aptos_logger::{debug, info};
 use aptos_sdk::{
     crypto::ed25519::Ed25519PrivateKey,
@@ -44,7 +50,7 @@ impl Drop for Process {
 #[derive(Debug)]
 pub struct LocalNode {
     version: LocalVersion,
-    process: Option<Process>,
+    process: std::sync::Mutex<Option<Process>>,
     name: String,
     index: usize,
     account_private_key: Option<ConfigKey<Ed25519PrivateKey>>,
@@ -75,7 +81,7 @@ impl LocalNode {
 
         Ok(Self {
             version,
-            process: None,
+            process: std::sync::Mutex::new(None),
             name,
             index,
             account_private_key,
@@ -109,13 +115,17 @@ impl LocalNode {
         &self.account_private_key
     }
 
-    pub fn start(&mut self) -> Result<()> {
-        ensure!(self.process.is_none(), "node {} already running", self.name);
+    pub fn start(&self) -> Result<()> {
+        let mut process_locker = self.process.lock().unwrap();
+        ensure!(
+            process_locker.is_none(),
+            "node {} already running",
+            self.name
+        );
 
         // Ensure log file exists
         let log_file = OpenOptions::new()
             .create(true)
-            .write(true)
             .append(true)
             .open(self.log_path())?;
 
@@ -157,18 +167,22 @@ impl LocalNode {
             self.name, self.config.inspection_service.port
         );
         info!(
+            "Node {}: Admin service is listening at http://127.0.0.1:{}",
+            self.name, self.config.admin_service.port
+        );
+        info!(
             "Node {}: Backup service is listening at http://127.0.0.1:{}",
             self.name,
             self.config.storage.backup_service_address.port()
         );
 
-        self.process = Some(Process(process));
+        *process_locker = Some(Process(process));
 
         Ok(())
     }
 
-    pub fn stop(&mut self) {
-        self.process = None;
+    pub fn stop(&self) {
+        *(self.process.lock().unwrap()) = None;
     }
 
     pub fn port(&self) -> u16 {
@@ -183,7 +197,7 @@ impl LocalNode {
         &self.config
     }
 
-    pub(crate) fn config_mut(&mut self) -> &mut NodeConfig {
+    pub fn config_mut(&mut self) -> &mut NodeConfig {
         &mut self.config
     }
 
@@ -197,28 +211,32 @@ impl LocalNode {
         fs::read_to_string(self.log_path()).map_err(Into::into)
     }
 
-    pub async fn health_check(&mut self) -> Result<(), HealthCheckError> {
+    pub async fn health_check(&self) -> Result<(), HealthCheckError> {
         debug!("Health check on node '{}'", self.name);
 
-        if let Some(p) = &mut self.process {
-            match p.0.try_wait() {
-                // This would mean the child process has crashed
-                Ok(Some(status)) => {
-                    let error = format!("Node '{}' crashed with: {}", self.name, status);
-                    return Err(HealthCheckError::NotRunning(error));
-                },
+        {
+            let mut process_locker = self.process.lock().unwrap();
+            let process = process_locker.as_mut();
+            if let Some(p) = process {
+                match p.0.try_wait() {
+                    // This would mean the child process has crashed
+                    Ok(Some(status)) => {
+                        let error = format!("Node '{}' crashed with: {}", self.name, status);
+                        return Err(HealthCheckError::NotRunning(error));
+                    },
 
-                // This is the case where the node is still running
-                Ok(None) => {},
+                    // This is the case where the node is still running
+                    Ok(None) => {},
 
-                // Some other unknown error
-                Err(e) => {
-                    return Err(HealthCheckError::Unknown(e.into()));
-                },
+                    // Some other unknown error
+                    Err(e) => {
+                        return Err(HealthCheckError::Unknown(e.into()));
+                    },
+                }
+            } else {
+                let error = format!("Node '{}' is stopped", self.name);
+                return Err(HealthCheckError::NotRunning(error));
             }
-        } else {
-            let error = format!("Node '{}' is stopped", self.name);
-            return Err(HealthCheckError::NotRunning(error));
         }
 
         self.inspection_client()
@@ -271,29 +289,29 @@ impl Node for LocalNode {
         self.config()
     }
 
-    async fn start(&mut self) -> Result<()> {
+    async fn start(&self) -> Result<()> {
         self.start()
     }
 
-    async fn stop(&mut self) -> Result<()> {
+    async fn stop(&self) -> Result<()> {
         self.stop();
         Ok(())
     }
 
-    async fn get_identity(&mut self) -> Result<String> {
+    async fn get_identity(&self) -> Result<String> {
         todo!()
     }
 
-    async fn set_identity(&mut self, _k8s_secret_name: String) -> Result<()> {
+    async fn set_identity(&self, _k8s_secret_name: String) -> Result<()> {
         todo!()
     }
 
-    async fn clear_storage(&mut self) -> Result<()> {
+    async fn clear_storage(&self) -> Result<()> {
         // Remove all storage files (i.e., blockchain data, consensus data and state sync data)
         let node_config = self.config();
         let ledger_db_path = node_config.storage.dir().join(LEDGER_DB_NAME);
         let state_db_path = node_config.storage.dir().join(STATE_MERKLE_DB_NAME);
-        let secure_storage_path = node_config.get_working_dir().join("secure_storage.json");
+        let secure_storage_path = node_config.get_working_dir().join(SECURE_STORAGE_FILENAME);
         let state_sync_db_path = node_config.storage.dir().join(STATE_SYNC_DB_NAME);
         let secondary_db_path = node_config.storage.dir().join(SECONDARY_DB_DIR);
 
@@ -311,10 +329,10 @@ impl Node for LocalNode {
         assert!(ledger_db_path.as_path().exists() && state_db_path.as_path().exists());
         assert!(state_sync_db_path.as_path().exists());
         if self.config.base.role.is_validator() {
-            assert!(secure_storage_path.as_path().exists(),);
+            assert!(secure_storage_path.as_path().exists());
         }
 
-        // Remove the files
+        // Remove the primary DB files
         fs::remove_dir_all(ledger_db_path)
             .map_err(anyhow::Error::from)
             .context("Failed to delete ledger_db_path")?;
@@ -325,12 +343,14 @@ impl Node for LocalNode {
             .map_err(anyhow::Error::from)
             .context("Failed to delete state_sync_db_path")?;
 
-        // remove secondary db if the path exists
+        // Remove the secondary DB files
         if secondary_db_path.as_path().exists() {
             fs::remove_dir_all(secondary_db_path)
                 .map_err(anyhow::Error::from)
                 .context("Failed to delete secondary_db_path")?;
         }
+
+        // Remove the secure storage file
         if self.config.base.role.is_validator() {
             fs::remove_file(secure_storage_path)
                 .map_err(anyhow::Error::from)
@@ -343,7 +363,7 @@ impl Node for LocalNode {
         Ok(())
     }
 
-    async fn health_check(&mut self) -> Result<(), HealthCheckError> {
+    async fn health_check(&self) -> Result<(), HealthCheckError> {
         self.health_check().await
     }
 
@@ -354,6 +374,10 @@ impl Node for LocalNode {
     // local node does not need to expose metric end point
     fn expose_metric(&self) -> Result<u64> {
         Ok(0)
+    }
+
+    fn service_name(&self) -> Option<String> {
+        None
     }
 }
 

@@ -11,13 +11,13 @@ use serde::{Deserialize, Serialize};
 use serde_yaml::Value;
 
 // The maximum message size per state sync message
-const MAX_MESSAGE_SIZE: usize = 4 * 1024 * 1024; /* 4 MiB */
+const MAX_MESSAGE_SIZE: usize = 10 * 1024 * 1024; /* 10 MiB */
 
 // The maximum chunk sizes for data client requests and response
 const MAX_EPOCH_CHUNK_SIZE: u64 = 200;
 const MAX_STATE_CHUNK_SIZE: u64 = 4000;
-const MAX_TRANSACTION_CHUNK_SIZE: u64 = 2000;
-const MAX_TRANSACTION_OUTPUT_CHUNK_SIZE: u64 = 1000;
+const MAX_TRANSACTION_CHUNK_SIZE: u64 = 3000;
+const MAX_TRANSACTION_OUTPUT_CHUNK_SIZE: u64 = 3000;
 
 // The maximum number of concurrent requests to send
 const MAX_CONCURRENT_REQUESTS: u64 = 6;
@@ -114,10 +114,10 @@ pub struct StateSyncDriverConfig {
     pub max_num_stream_timeouts: u64,
     /// The maximum number of data chunks pending execution or commit
     pub max_pending_data_chunks: u64,
+    /// The maximum number of pending mempool commit notifications
+    pub max_pending_mempool_notifications: u64,
     /// The maximum time (ms) to wait for a data stream notification
     pub max_stream_wait_time_ms: u64,
-    /// The maximum time (ms) allowed for mempool to ack a commit notification
-    pub mempool_commit_ack_timeout_ms: u64,
     /// The version lag we'll tolerate before snapshot syncing
     pub num_versions_to_skip_snapshot_sync: u64,
 }
@@ -132,14 +132,14 @@ impl Default for StateSyncDriverConfig {
             continuous_syncing_mode: ContinuousSyncingMode::ExecuteTransactionsOrApplyOutputs,
             enable_auto_bootstrapping: false,
             fallback_to_output_syncing_secs: 180, // 3 minutes
-            progress_check_interval_ms: 50,
+            progress_check_interval_ms: 100,
             max_connection_deadline_secs: 10,
             max_consecutive_stream_notifications: 10,
             max_num_stream_timeouts: 12,
-            max_pending_data_chunks: 100,
+            max_pending_data_chunks: 50,
+            max_pending_mempool_notifications: 100,
             max_stream_wait_time_ms: 5000,
-            mempool_commit_ack_timeout_ms: 5000, // 5 seconds
-            num_versions_to_skip_snapshot_sync: 100_000_000, // At 5k TPS, this allows a node to fail for about 6 hours.
+            num_versions_to_skip_snapshot_sync: 400_000_000, // At 5k TPS, this allows a node to fail for about 24 hours.
         }
     }
 }
@@ -147,8 +147,6 @@ impl Default for StateSyncDriverConfig {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct StorageServiceConfig {
-    /// Maximum number of concurrent storage server tasks
-    pub max_concurrent_requests: u64,
     /// Maximum number of epoch ending ledger infos per chunk
     pub max_epoch_chunk_size: u64,
     /// Maximum number of invalid requests per peer
@@ -182,7 +180,6 @@ pub struct StorageServiceConfig {
 impl Default for StorageServiceConfig {
     fn default() -> Self {
         Self {
-            max_concurrent_requests: 4000,
             max_epoch_chunk_size: MAX_EPOCH_CHUNK_SIZE,
             max_invalid_requests_per_peer: 500,
             max_lru_cache_size: 500, // At ~0.6MiB per chunk, this should take no more than 0.5GiB
@@ -204,34 +201,43 @@ impl Default for StorageServiceConfig {
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct DataStreamingServiceConfig {
+    /// The dynamic prefetching config for the data streaming service
+    pub dynamic_prefetching: DynamicPrefetchingConfig,
+
     /// Whether or not to enable data subscription streaming.
     pub enable_subscription_streaming: bool,
 
     /// The interval (milliseconds) at which to refresh the global data summary.
     pub global_summary_refresh_interval_ms: u64,
 
-    /// Maximum number of concurrent data client requests (per stream).
+    /// Maximum number of in-flight data client requests (per stream).
     pub max_concurrent_requests: u64,
 
-    /// Maximum number of concurrent data client requests (per stream) for state keys/values.
+    /// Maximum number of in-flight data client requests (per stream) for state keys/values.
     pub max_concurrent_state_requests: u64,
 
-    /// Maximum channel sizes for each data stream listener. If messages are not
-    /// consumed, they will be dropped (oldest messages first). The remaining
-    /// messages will be retrieved using FIFO ordering.
+    /// Maximum channel sizes for each data stream listener (per stream).
     pub max_data_stream_channel_sizes: u64,
-
-    /// Maximum number of retries for a single client request before a data
-    /// stream will terminate.
-    pub max_request_retry: u64,
 
     /// Maximum number of notification ID to response context mappings held in
     /// memory. Once the number grows beyond this value, garbage collection occurs.
     pub max_notification_id_mappings: u64,
 
-    /// Maxinum number of consecutive subscriptions that can be made before
+    /// Maximum number of consecutive subscriptions that can be made before
     /// the subscription stream is terminated and a new stream must be created.
     pub max_num_consecutive_subscriptions: u64,
+
+    /// Maximum number of pending requests per data stream. This includes the
+    /// requests that have already succeeded but have not yet been consumed
+    /// because they're head-of-line blocked by other requests.
+    pub max_pending_requests: u64,
+
+    /// Maximum number of retries for a single client request before a data
+    /// stream will terminate.
+    pub max_request_retry: u64,
+
+    /// Maximum lag (in seconds) we'll tolerate when sending subscription requests
+    pub max_subscription_stream_lag_secs: u64,
 
     /// The interval (milliseconds) at which to check the progress of each stream.
     pub progress_check_interval_ms: u64,
@@ -240,15 +246,61 @@ pub struct DataStreamingServiceConfig {
 impl Default for DataStreamingServiceConfig {
     fn default() -> Self {
         Self {
-            enable_subscription_streaming: true,
+            dynamic_prefetching: DynamicPrefetchingConfig::default(),
+            enable_subscription_streaming: false,
             global_summary_refresh_interval_ms: 50,
             max_concurrent_requests: MAX_CONCURRENT_REQUESTS,
             max_concurrent_state_requests: MAX_CONCURRENT_STATE_REQUESTS,
-            max_data_stream_channel_sizes: 300,
-            max_request_retry: 5,
+            max_data_stream_channel_sizes: 50,
             max_notification_id_mappings: 300,
-            max_num_consecutive_subscriptions: 40, // At ~4 blocks per second, this should last 10 seconds
+            max_num_consecutive_subscriptions: 45, // At ~3 blocks per second, this should last ~15 seconds
+            max_pending_requests: 50,
+            max_request_retry: 5,
+            max_subscription_stream_lag_secs: 10, // 10 seconds
             progress_check_interval_ms: 50,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct DynamicPrefetchingConfig {
+    /// Whether or not to enable dynamic prefetching
+    pub enable_dynamic_prefetching: bool,
+
+    /// The initial number of concurrent prefetching requests
+    pub initial_prefetching_value: u64,
+
+    /// Maximum number of in-flight subscription requests
+    pub max_in_flight_subscription_requests: u64,
+
+    /// The maximum number of concurrent prefetching requests
+    pub max_prefetching_value: u64,
+
+    /// The minimum number of concurrent prefetching requests
+    pub min_prefetching_value: u64,
+
+    /// The amount by which to increase the concurrent prefetching value (i.e., on a successful response)
+    pub prefetching_value_increase: u64,
+
+    /// The amount by which to decrease the concurrent prefetching value (i.e., on a timeout)
+    pub prefetching_value_decrease: u64,
+
+    /// The duration by which to freeze the prefetching value on a timeout
+    pub timeout_freeze_duration_secs: u64,
+}
+
+impl Default for DynamicPrefetchingConfig {
+    fn default() -> Self {
+        Self {
+            enable_dynamic_prefetching: true,
+            initial_prefetching_value: 3,
+            max_in_flight_subscription_requests: 9, // At ~3 blocks per second, this should last ~3 seconds
+            max_prefetching_value: 30,
+            min_prefetching_value: 3,
+            prefetching_value_increase: 1,
+            prefetching_value_decrease: 2,
+            timeout_freeze_duration_secs: 30,
         }
     }
 }
@@ -288,11 +340,66 @@ impl Default for AptosDataPollerConfig {
 
 #[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
 #[serde(default, deny_unknown_fields)]
+pub struct AptosDataMultiFetchConfig {
+    /// Whether or not to enable multi-fetch for data client requests
+    pub enable_multi_fetch: bool,
+    /// The number of additional requests to send per peer bucket
+    pub additional_requests_per_peer_bucket: usize,
+    /// The minimum number of peers for each multi-fetch request
+    pub min_peers_for_multi_fetch: usize,
+    /// The maximum number of peers for each multi-fetch request
+    pub max_peers_for_multi_fetch: usize,
+    /// The number of peers per multi-fetch bucket. We use buckets
+    /// to track the number of peers that can service a multi-fetch
+    /// request and determine the number of requests to send based on
+    /// the configured min, max and additional requests per bucket.
+    pub multi_fetch_peer_bucket_size: usize,
+}
+
+impl Default for AptosDataMultiFetchConfig {
+    fn default() -> Self {
+        Self {
+            enable_multi_fetch: true,
+            additional_requests_per_peer_bucket: 1,
+            min_peers_for_multi_fetch: 2,
+            max_peers_for_multi_fetch: 3,
+            multi_fetch_peer_bucket_size: 10,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AptosLatencyFilteringConfig {
+    /// The reduction factor for latency filtering when selecting peers
+    pub latency_filtering_reduction_factor: u64,
+    /// Minimum peer ratio for latency filtering
+    pub min_peer_ratio_for_latency_filtering: u64,
+    /// Minimum number of peers before latency filtering can occur
+    pub min_peers_for_latency_filtering: u64,
+}
+
+impl Default for AptosLatencyFilteringConfig {
+    fn default() -> Self {
+        Self {
+            latency_filtering_reduction_factor: 2, // Only consider the best 50% of peers
+            min_peer_ratio_for_latency_filtering: 5, // Only filter if we have at least 5 potential peers per request
+            min_peers_for_latency_filtering: 10, // Only filter if we have at least 10 total peers
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Deserialize, PartialEq, Eq, Serialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct AptosDataClientConfig {
     /// The aptos data poller config for the data client
     pub data_poller_config: AptosDataPollerConfig,
-    /// The reduction factor for latency filtering when selecting peers
-    pub latency_filtering_reduction_factor: u64,
+    /// The aptos data multi-fetch config for the data client
+    pub data_multi_fetch_config: AptosDataMultiFetchConfig,
+    /// Whether or not to ignore peers with low peer scores
+    pub ignore_low_score_peers: bool,
+    /// The aptos latency filtering config for the data client
+    pub latency_filtering_config: AptosLatencyFilteringConfig,
     /// The interval (milliseconds) at which to refresh the latency monitor
     pub latency_monitor_loop_interval_ms: u64,
     /// Maximum number of epoch ending ledger infos per chunk
@@ -311,10 +418,6 @@ pub struct AptosDataClientConfig {
     pub max_transaction_chunk_size: u64,
     /// Maximum number of transaction outputs per chunk
     pub max_transaction_output_chunk_size: u64,
-    /// Minimum peer ratio for latency filtering
-    pub min_peer_ratio_for_latency_filtering: u64,
-    /// Minimum number of peers before latency filtering can occur
-    pub min_peers_for_latency_filtering: u64,
     /// Timeout (in ms) when waiting for an optimistic fetch response
     pub optimistic_fetch_timeout_ms: u64,
     /// First timeout (in ms) when waiting for a response
@@ -329,21 +432,21 @@ impl Default for AptosDataClientConfig {
     fn default() -> Self {
         Self {
             data_poller_config: AptosDataPollerConfig::default(),
-            latency_filtering_reduction_factor: 2, // Only consider the best 50% of peers
+            data_multi_fetch_config: AptosDataMultiFetchConfig::default(),
+            ignore_low_score_peers: true,
+            latency_filtering_config: AptosLatencyFilteringConfig::default(),
             latency_monitor_loop_interval_ms: 100,
             max_epoch_chunk_size: MAX_EPOCH_CHUNK_SIZE,
             max_num_output_reductions: 0,
-            max_optimistic_fetch_lag_secs: 30, // 30 seconds
+            max_optimistic_fetch_lag_secs: 20, // 20 seconds
             max_response_timeout_ms: 60_000,   // 60 seconds
             max_state_chunk_size: MAX_STATE_CHUNK_SIZE,
-            max_subscription_lag_secs: 30, // 30 seconds
+            max_subscription_lag_secs: 20, // 20 seconds
             max_transaction_chunk_size: MAX_TRANSACTION_CHUNK_SIZE,
             max_transaction_output_chunk_size: MAX_TRANSACTION_OUTPUT_CHUNK_SIZE,
-            min_peer_ratio_for_latency_filtering: 5, // Only filter if we have at least 5 potential peers per request
-            min_peers_for_latency_filtering: 10, // Only filter if we have at least 10 total peers
-            optimistic_fetch_timeout_ms: 5000,   // 5 seconds
-            response_timeout_ms: 10_000,         // 10 seconds
-            subscription_response_timeout_ms: 20_000, // 20 seconds (must be longer than a regular timeout because of pre-fetching)
+            optimistic_fetch_timeout_ms: 5000,        // 5 seconds
+            response_timeout_ms: 10_000,              // 10 seconds
+            subscription_response_timeout_ms: 15_000, // 15 seconds (longer than a regular timeout because of prefetching)
             use_compression: true,
         }
     }
@@ -353,7 +456,7 @@ impl ConfigSanitizer for StateSyncConfig {
     fn sanitize(
         node_config: &NodeConfig,
         node_type: NodeType,
-        chain_id: ChainId,
+        chain_id: Option<ChainId>,
     ) -> Result<(), Error> {
         // Sanitize the state sync driver config
         StateSyncDriverConfig::sanitize(node_config, node_type, chain_id)
@@ -364,7 +467,7 @@ impl ConfigSanitizer for StateSyncDriverConfig {
     fn sanitize(
         node_config: &NodeConfig,
         _node_type: NodeType,
-        _chain_id: ChainId,
+        _chain_id: Option<ChainId>,
     ) -> Result<(), Error> {
         let sanitizer_name = Self::get_sanitizer_name();
         let state_sync_driver_config = &node_config.state_sync.state_sync_driver;
@@ -389,7 +492,7 @@ impl ConfigOptimizer for StateSyncConfig {
         node_config: &mut NodeConfig,
         local_config_yaml: &Value,
         node_type: NodeType,
-        chain_id: ChainId,
+        chain_id: Option<ChainId>,
     ) -> Result<bool, Error> {
         // Optimize the driver and data streaming service configs
         let modified_driver_config =
@@ -410,7 +513,7 @@ impl ConfigOptimizer for StateSyncDriverConfig {
         node_config: &mut NodeConfig,
         local_config_yaml: &Value,
         _node_type: NodeType,
-        chain_id: ChainId,
+        chain_id: Option<ChainId>,
     ) -> Result<bool, Error> {
         let state_sync_driver_config = &mut node_config.state_sync.state_sync_driver;
         let local_driver_config_yaml = &local_config_yaml["state_sync"]["state_sync_driver"];
@@ -419,11 +522,14 @@ impl ConfigOptimizer for StateSyncDriverConfig {
         // because pruning has kicked in, and nodes will struggle
         // to locate all the data since genesis.
         let mut modified_config = false;
-        if (chain_id.is_testnet() || chain_id.is_mainnet())
-            && local_driver_config_yaml["bootstrapping_mode"].is_null()
-        {
-            state_sync_driver_config.bootstrapping_mode = BootstrappingMode::DownloadLatestStates;
-            modified_config = true;
+        if let Some(chain_id) = chain_id {
+            if (chain_id.is_testnet() || chain_id.is_mainnet())
+                && local_driver_config_yaml["bootstrapping_mode"].is_null()
+            {
+                state_sync_driver_config.bootstrapping_mode =
+                    BootstrappingMode::DownloadLatestStates;
+                modified_config = true;
+            }
         }
 
         Ok(modified_config)
@@ -435,7 +541,7 @@ impl ConfigOptimizer for DataStreamingServiceConfig {
         node_config: &mut NodeConfig,
         local_config_yaml: &Value,
         node_type: NodeType,
-        _chain_id: ChainId,
+        _chain_id: Option<ChainId>,
     ) -> Result<bool, Error> {
         let data_streaming_service_config = &mut node_config.state_sync.data_streaming_service;
         let local_stream_config_yaml = &local_config_yaml["state_sync"]["data_streaming_service"];
@@ -475,7 +581,7 @@ mod tests {
             &mut node_config,
             &serde_yaml::from_str("{}").unwrap(), // An empty local config,
             NodeType::ValidatorFullnode,
-            ChainId::new(40), // Not mainnet or testnet
+            Some(ChainId::new(40)), // Not mainnet or testnet
         )
         .unwrap();
         assert!(modified_config);
@@ -497,7 +603,7 @@ mod tests {
             &mut node_config,
             &serde_yaml::from_str("{}").unwrap(), // An empty local config,
             NodeType::Validator,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap();
         assert!(modified_config);
@@ -517,7 +623,7 @@ mod tests {
             &mut node_config,
             &serde_yaml::from_str("{}").unwrap(), // An empty local config,
             NodeType::ValidatorFullnode,
-            ChainId::mainnet(),
+            Some(ChainId::mainnet()),
         )
         .unwrap();
         assert!(modified_config);
@@ -547,7 +653,7 @@ mod tests {
             &mut node_config,
             &local_config_yaml,
             NodeType::ValidatorFullnode,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap();
         assert!(modified_config);
@@ -569,7 +675,7 @@ mod tests {
             &mut node_config,
             &serde_yaml::from_str("{}").unwrap(), // An empty local config,
             NodeType::Validator,
-            ChainId::mainnet(),
+            Some(ChainId::mainnet()),
         )
         .unwrap();
         assert!(modified_config);
@@ -596,7 +702,7 @@ mod tests {
             &mut node_config,
             &serde_yaml::from_str("{}").unwrap(), // An empty local config,
             NodeType::PublicFullnode,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap();
         assert!(modified_config);
@@ -642,7 +748,7 @@ mod tests {
             &mut node_config,
             &local_config_yaml,
             NodeType::ValidatorFullnode,
-            ChainId::testnet(),
+            Some(ChainId::testnet()),
         )
         .unwrap();
         assert!(modified_config);
@@ -677,7 +783,7 @@ mod tests {
 
         // Verify that sanitization fails
         let error =
-            StateSyncConfig::sanitize(&node_config, NodeType::Validator, ChainId::testnet())
+            StateSyncConfig::sanitize(&node_config, NodeType::Validator, Some(ChainId::testnet()))
                 .unwrap_err();
         assert!(matches!(error, Error::ConfigSanitizerFailed(_, _)));
     }

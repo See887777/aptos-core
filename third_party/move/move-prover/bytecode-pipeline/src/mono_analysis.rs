@@ -14,7 +14,10 @@ use move_model::{
         StructEnv, StructId,
     },
     pragmas::INTRINSIC_TYPE_MAP,
-    ty::{Type, TypeDisplayContext, TypeInstantiationDerivation, TypeUnificationAdapter, Variance},
+    ty::{
+        NoUnificationContext, Type, TypeDisplayContext, TypeInstantiationDerivation,
+        TypeUnificationAdapter, Variance,
+    },
     well_known::{
         TYPE_INFO_MOVE, TYPE_INFO_SPEC, TYPE_NAME_GET_MOVE, TYPE_NAME_GET_SPEC, TYPE_NAME_MOVE,
         TYPE_NAME_SPEC, TYPE_SPEC_IS_STRUCT,
@@ -326,7 +329,10 @@ impl<'a> Analyzer<'a> {
 
                     // make sure these two types unify before trying to instantiate them
                     let adapter = TypeUnificationAdapter::new_pair(&lhs_ty, &rhs_ty, true, true);
-                    if adapter.unify(Variance::SpecVariance, false).is_none() {
+                    if adapter
+                        .unify(&mut NoUnificationContext, Variance::SpecVariance, false)
+                        .is_none()
+                    {
                         continue;
                     }
 
@@ -450,7 +456,7 @@ impl<'a> Analyzer<'a> {
     fn analyze_spec_fun(&mut self, fun: QualifiedId<SpecFunId>) {
         let module_env = self.env.get_module(fun.module_id);
         let decl = module_env.get_spec_fun(fun.id);
-        for Parameter(_, ty) in &decl.params {
+        for Parameter(_, ty, _) in &decl.params {
             self.add_type_root(ty)
         }
         self.add_type_root(&decl.result_type);
@@ -460,7 +466,7 @@ impl<'a> Analyzer<'a> {
     }
 
     fn analyze_exp(&mut self, exp: &ExpData) {
-        exp.visit(&mut |e| {
+        exp.visit_post_order(&mut |e| {
             let node_id = e.node_id();
             self.add_type_root(&self.env.get_node_type(node_id));
             for ref ty in self.env.get_node_instantiation(node_id) {
@@ -511,6 +517,7 @@ impl<'a> Analyzer<'a> {
                     }
                 }
             }
+            true // keep going
         });
     }
 
@@ -563,8 +570,16 @@ impl<'a> Analyzer<'a> {
                 .entry(struct_.get_qualified_id())
                 .or_default()
                 .insert(targs.to_owned());
-            for field in struct_.get_fields() {
-                self.add_type(&field.get_type().instantiate(targs));
+            if struct_.has_variants() {
+                for variant in struct_.get_variants() {
+                    for field in struct_.get_fields_of_variant(variant) {
+                        self.add_type(&field.get_type().instantiate(targs));
+                    }
+                }
+            } else {
+                for field in struct_.get_fields() {
+                    self.add_type(&field.get_type().instantiate(targs));
+                }
             }
         }
     }
@@ -575,7 +590,7 @@ impl<'a> Analyzer<'a> {
     fn add_types_in_borrow_edge(&mut self, edge: &BorrowEdge) {
         match edge {
             BorrowEdge::Direct | BorrowEdge::Index(_) => (),
-            BorrowEdge::Field(qid, _) => {
+            BorrowEdge::Field(qid, _, _) => {
                 self.add_type_root(&qid.to_type());
             },
             BorrowEdge::Hyper(edges) => {

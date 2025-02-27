@@ -94,6 +94,13 @@ impl<'a, 'b, 'c, 'd> SafeNativeContext<'a, 'b, 'c, 'd> {
             .abstract_value_size(val, self.gas_feature_version)
     }
 
+    /// Computes the abstract size of the input value.
+    pub fn abs_val_size_dereferenced(&self, val: &Value) -> AbstractValueSize {
+        self.misc_gas_params
+            .abs_val
+            .abstract_value_size_dereferenced(val, self.gas_feature_version)
+    }
+
     /// Returns the current gas feature version.
     pub fn gas_feature_version(&self) -> u64 {
         self.gas_feature_version
@@ -101,7 +108,7 @@ impl<'a, 'b, 'c, 'd> SafeNativeContext<'a, 'b, 'c, 'd> {
 
     /// Returns a reference to the struct representing on-chain features.
     pub fn get_feature_flags(&self) -> &Features {
-        self.features.deref()
+        self.features
     }
 
     /// Checks if the timed feature corresponding to the given flag is enabled.
@@ -117,10 +124,5 @@ impl<'a, 'b, 'c, 'd> SafeNativeContext<'a, 'b, 'c, 'd> {
     ///   This should only be used for backward compatibility reasons.
     pub fn set_incremental_gas_charging(&mut self, enable: bool) {
         self.enable_incremental_gas_charging = enable;
-    }
-
-    /// Returns true if the aggregator snapshots feature is enabled.
-    pub fn aggregator_snapshots_enabled(&self) -> bool {
-        self.get_feature_flags().is_aggregator_snapshots_enabled()
     }
 }

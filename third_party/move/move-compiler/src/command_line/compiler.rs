@@ -3,7 +3,6 @@
 // SPDX-License-Identifier: Apache-2.0
 
 use crate::{
-    attr_derivation::add_attributes_for_flavor,
     cfgir,
     command_line::{DEFAULT_OUTPUT_DIR, MOVE_COMPILED_INTERFACES_DIR},
     compiled_unit,
@@ -24,6 +23,7 @@ use move_core_types::language_storage::ModuleId as CompiledModuleId;
 use move_symbol_pool::Symbol;
 use std::{
     collections::{BTreeMap, BTreeSet},
+    fmt::Debug,
     fs,
     fs::File,
     io::{Read, Write},
@@ -94,7 +94,7 @@ pub struct FullyCompiledProgram {
 //**************************************************************************************************
 
 impl<'a> Compiler<'a> {
-    pub fn from_package_paths<Paths: Into<Symbol>, NamedAddress: Into<Symbol>>(
+    pub fn from_package_paths<Paths: Into<Symbol> + Debug, NamedAddress: Into<Symbol> + Debug>(
         targets: Vec<PackagePaths<Paths, NamedAddress>>,
         deps: Vec<PackagePaths<Paths, NamedAddress>>,
         flags: Flags,
@@ -102,7 +102,7 @@ impl<'a> Compiler<'a> {
     ) -> Self {
         fn indexed_scopes(
             maps: &mut NamedAddressMaps,
-            all_pkgs: Vec<PackagePaths<impl Into<Symbol>, impl Into<Symbol>>>,
+            all_pkgs: Vec<PackagePaths<impl Into<Symbol> + Debug, impl Into<Symbol> + Debug>>,
         ) -> Vec<IndexedPackagePath> {
             let mut idx_paths = vec![];
             for PackagePaths {
@@ -141,7 +141,7 @@ impl<'a> Compiler<'a> {
         }
     }
 
-    pub fn from_files<Paths: Into<Symbol>, NamedAddress: Into<Symbol> + Clone>(
+    pub fn from_files<Paths: Into<Symbol> + Debug, NamedAddress: Into<Symbol> + Clone + Debug>(
         targets: Vec<Paths>,
         deps: Vec<Paths>,
         named_address_map: BTreeMap<NamedAddress, NumericalAddress>,
@@ -211,14 +211,13 @@ impl<'a> Compiler<'a> {
             pre_compiled_lib,
             compiled_module_named_address_mapping,
             flags,
-            mut known_attributes,
+            known_attributes,
         } = self;
         generate_interface_files_for_deps(
             &mut deps,
             interface_files_dir_opt,
             &compiled_module_named_address_mapping,
         )?;
-        add_attributes_for_flavor(&flags, &mut known_attributes);
         let mut compilation_env = CompilationEnv::new(flags, known_attributes);
         let (source_text, pprog_and_comments_res) =
             parse_program(&mut compilation_env, maps, targets, deps)?;
@@ -427,7 +426,10 @@ impl<'a> SteppedCompiler<'a, PASS_COMPILATION> {
 
 /// Given a set of dependencies, precompile them and save the ASTs so that they can be used again
 /// to compile against without having to recompile these dependencies
-pub fn construct_pre_compiled_lib<Paths: Into<Symbol>, NamedAddress: Into<Symbol>>(
+pub fn construct_pre_compiled_lib<
+    Paths: Into<Symbol> + Debug,
+    NamedAddress: Into<Symbol> + Debug,
+>(
     targets: Vec<PackagePaths<Paths, NamedAddress>>,
     interface_files_dir_opt: Option<String>,
     flags: Flags,
@@ -837,7 +839,7 @@ fn run(
             )
         },
         PassResult::Typing(mut tprog) => {
-            inlining::translate::run_inlining(compilation_env, &mut tprog);
+            inlining::translate::run_inlining(compilation_env, pre_compiled_lib, &mut tprog);
             compilation_env.check_diags_at_or_above_severity(Severity::BlockingError)?;
             if compilation_env.flags().debug() {
                 eprintln!(

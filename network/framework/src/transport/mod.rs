@@ -154,6 +154,11 @@ impl ConnectionMetadata {
             application_protocols: ProtocolIdSet::empty(),
         }
     }
+
+    /// Returns true iff the connection origin is outbound
+    pub fn is_outbound_connection(&self) -> bool {
+        self.origin == ConnectionOrigin::Outbound
+    }
 }
 
 impl fmt::Debug for ConnectionMetadata {
@@ -275,7 +280,7 @@ async fn upgrade_inbound<T: TSocket>(
             if err.should_security_log() {
                 sample!(
                     SampleRate::Duration(Duration::from_secs(15)),
-                    error!(
+                    warn!(
                         SecurityEvent::NoiseHandshake,
                         NetworkSchema::new(&ctxt.noise.network_context)
                             .network_address(&addr)
@@ -357,7 +362,7 @@ pub async fn upgrade_outbound<T: TSocket>(
             if err.should_security_log() {
                 sample!(
                     SampleRate::Duration(Duration::from_secs(15)),
-                    error!(
+                    warn!(
                         SecurityEvent::NoiseHandshake,
                         NetworkSchema::new(&ctxt.noise.network_context)
                             .network_address(&addr)

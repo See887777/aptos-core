@@ -9,7 +9,6 @@
 //! The consensus protocol implemented is AptosBFT (based on
 //! [DiemBFT](https://developers.diem.com/papers/diem-consensus-state-machine-replication-in-the-diem-blockchain/2021-08-17.pdf)).
 
-#![cfg_attr(not(feature = "fuzzing"), deny(missing_docs))]
 #![cfg_attr(feature = "fuzzing", allow(dead_code))]
 #![recursion_limit = "512"]
 
@@ -23,7 +22,6 @@ mod consensusdb;
 mod dag;
 mod epoch_manager;
 mod error;
-mod experimental;
 mod liveness;
 mod logging;
 mod metrics_safety_rules;
@@ -31,20 +29,29 @@ mod network;
 #[cfg(test)]
 mod network_tests;
 mod payload_client;
+mod pending_order_votes;
 mod pending_votes;
-mod persistent_liveness_storage;
-mod quorum_store;
+#[cfg(test)]
+mod pending_votes_test;
+pub mod persistent_liveness_storage;
+mod pipeline;
+pub mod quorum_store;
+mod rand;
 mod recovery_manager;
 mod round_manager;
 mod state_computer;
+#[cfg(test)]
+mod state_computer_tests;
 mod state_replication;
 #[cfg(any(test, feature = "fuzzing"))]
 mod test_utils;
 #[cfg(test)]
 mod twins;
 mod txn_notifier;
-mod util;
+pub mod util;
 
+mod block_preparer;
+pub mod consensus_observer;
 /// AptosBFT implementation
 pub mod consensus_provider;
 /// Required by the telemetry service
@@ -53,9 +60,11 @@ mod execution_pipeline;
 /// AptosNet interface.
 pub mod network_interface;
 mod payload_manager;
-mod sender_aware_shuffler;
 mod transaction_deduper;
+mod transaction_filter;
 mod transaction_shuffler;
+#[cfg(feature = "fuzzing")]
+pub use transaction_shuffler::transaction_shuffler_fuzzing;
 mod txn_hash_and_authenticator_deduper;
 
 use aptos_metrics_core::IntGauge;
@@ -66,7 +75,7 @@ pub use quorum_store::quorum_store_db::QUORUM_STORE_DB_NAME;
 #[cfg(feature = "fuzzing")]
 pub use round_manager::round_manager_fuzzing;
 
-struct IntGaugeGuard {
+pub struct IntGaugeGuard {
     gauge: IntGauge,
 }
 

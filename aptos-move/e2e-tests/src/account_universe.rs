@@ -128,7 +128,7 @@ pub struct AccountCurrent {
 
 impl AccountCurrent {
     fn new(initial_data: AccountData) -> Self {
-        let balance = initial_data.balance();
+        let balance = initial_data.coin_balance().unwrap();
         let sequence_number = initial_data.sequence_number();
         let sent_events_count = initial_data.sent_events_count();
         let received_events_count = initial_data.received_events_count();
@@ -380,8 +380,10 @@ pub fn run_and_assert_universe(
     for (idx, (output, expected)) in outputs.iter().zip(&expected_values).enumerate() {
         prop_assert!(
             transaction_status_eq(output.status(), &expected.0),
-            "unexpected status for transaction {}",
-            idx
+            "unexpected status for transaction {}, {:?} != {:?}",
+            idx,
+            output.status(),
+            &expected.0
         );
         executor.apply_write_set(output.write_set());
     }
@@ -399,7 +401,7 @@ pub fn assert_accounts_match(
             .read_account_resource(account.account())
             .expect("account resource must exist");
         let coin_store_resource = executor
-            .read_coin_store_resource(account.account())
+            .read_apt_coin_store_resource(account.account())
             .expect("account balance resource must exist");
         let auth_key = account.account().auth_key();
         prop_assert_eq!(
